@@ -3,38 +3,10 @@
   "label": "נורדאו 86",
   "street": "נורדאו",
   "number": "86",
+  "lat": 32.0916827757229,
+  "lon": 34.78161161459743,
+  "zone": 9,
   "candidates": [
-   {
-    "attributes": {
-     "oid_ktovet": 15252,
-     "id_ktovet": 74121,
-     "k_rechov": 197,
-     "t_rechov": "נורדאו",
-     "ms_bayit": 24,
-     "knisa": " ",
-     "t_bayit_veknisa": "24 ",
-     "t_ktovet_melea": "נורדאו 24 ",
-     "ms_zavit": -4,
-     "x": 178956.89,
-     "y": 666633.31,
-     "ms_gush": 6960,
-     "ms_chelka": 86,
-     "k_status_hesder": 0,
-     "lon": 34.775418,
-     "lat": 32.092291,
-     "UniqueId": "527-74121",
-     "garbage": "א, ג, ה",
-     "cleaning": "כל יום",
-     "gezem": "בימים א' ו- ג' 06:00 - 18:00",
-     "recycle_blue": "ו",
-     "recycle_orange": "ב",
-     "date_import": "20/11/2026 00:54:54",
-     "t_rechov_eng": "NORDAU"
-    },
-    "lon": 34.77541778159605,
-    "lat": 32.09229109036598,
-    "zone": 9
-   },
    {
     "attributes": {
      "oid_ktovet": 15582,
@@ -73,6 +45,9 @@
   "label": "אוסישקין 54",
   "street": "אוסישקין",
   "number": "54",
+  "lat": 32.09500641606727,
+  "lon": 34.77916908119569,
+  "zone": 9,
   "candidates": [
    {
     "attributes": {
