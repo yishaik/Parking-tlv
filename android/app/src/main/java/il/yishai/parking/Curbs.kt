@@ -27,6 +27,8 @@ enum class CurbType(val key: String, val label: String, val color: Long) {
             SpotType.PERMIT_ONLY -> PREFERRED
             SpotType.UNMARKED -> GRAY
             SpotType.SHORT_TERM -> SHORT_TERM
+            SpotType.RED_WHITE -> RED_WHITE
+            SpotType.LOADING -> LOADING
             else -> null
         }
     }

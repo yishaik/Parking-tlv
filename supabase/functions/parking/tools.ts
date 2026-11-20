@@ -55,7 +55,7 @@ export interface Event {
 export interface Curb { id: string; lat: number; lon: number; type: string; street: string | null; time: number; source: string }
 
 export const TYPE_LABELS: Record<string, string> = {
-  blue_white: "כחול-לבן", permit_only: "לבעלי תו אזורי", unmarked: "ללא סימון (חינם)", garage: "חניון",
+  blue_white: "כחול-לבן", permit_only: "מועדפת / תו אזורי", unmarked: "אפור / ללא סימון", red_white: "אדום-לבן", loading: "פריקה וטעינה", garage: "חניון",
   close_to_home: "חניון קרוב לבית", short_term: "קצרת מועד", private: "חניה פרטית", other: "אחר",
 };
 export const CURB_LABELS: Record<string, string> = {
@@ -167,7 +167,7 @@ export function autotelNear(lat: number, lon: number, radius = 60) {
 
 /** The owner's curb map near a point: explicit curb marks plus curb types implied by classified parkings. */
 export function curbMapNear(curbs: Curb[], events: Event[], lat: number, lon: number, radius = 300) {
-  const fromParking: Record<string, string> = { blue_white: "blue_white", permit_only: "preferred", unmarked: "gray", short_term: "short_term" };
+  const fromParking: Record<string, string> = { blue_white: "blue_white", permit_only: "preferred", unmarked: "gray", short_term: "short_term", red_white: "red_white", loading: "loading" };
   const marks = [
     ...curbs.map((c) => ({ ...c, kind: c.type, from: "curb-mark" })),
     ...events.filter((e) => e.type && fromParking[e.type]).map((e) => ({ id: e.id, lat: e.lat, lon: e.lon, type: fromParking[e.type!], street: e.street, time: e.time, source: "parking", kind: fromParking[e.type!], from: "parking" })),

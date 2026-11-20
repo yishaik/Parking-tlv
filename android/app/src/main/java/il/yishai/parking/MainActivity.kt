@@ -187,6 +187,13 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
     LaunchedEffect(classifyFromNotification) {
         classifyFromNotification?.let { id -> history.get(id)?.let { classifying = it }; consumeClassify() }
     }
+    // Pop the curb picker on open if the last parking (within 3 hours) has no type yet and wasn't dismissed.
+    LaunchedEffect(Unit) {
+        val last = history.all().firstOrNull()
+        val dismissed = ctx.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE).getString("dismissedClassify", null)
+        if (classifying == null && last != null && last.type == null && last.id != dismissed &&
+            System.currentTimeMillis() - last.time < 3 * 3600_000L) classifying = last
+    }
     BackHandler(enabled = showHistory || showMap) { showHistory = false; showMap = false }
 
     fun refresh() {
@@ -255,11 +262,13 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
 
     classifying?.let { ev ->
         ClassifySheet(ev, onSave = { t, sTime ->
-            history.update(ev.id) { it.copy(type = t?.key, search = sTime?.key, synced = false) }
-            CurbType.fromSpot(t)?.let { c -> CurbStore(ctx).add(ev.lat, ev.lon, c, ev.street ?: repo.streetNear(ev.lat, ev.lon), "parking") }
-            events = history.all(); classifying = null
-            scope.launch { Sync.push(ctx) }
-        }, onDismiss = { classifying = null })
+            Parking.classify(ctx, ev.id, t, sTime)
+            Notifications.cancel(ctx, Notifications.ID_CLASSIFY)
+            events = history.all(); curbMarks = curbStore.all(); classifying = null
+        }, onDismiss = {
+            ctx.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE).edit().putString("dismissedClassify", ev.id).apply()
+            classifying = null
+        })
     }
 
     val cardColorTop = if (dark) Color(0xFF191C22) else Color.White

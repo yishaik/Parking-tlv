@@ -137,9 +137,12 @@ class Rules(
         return when (days) { 0L -> "היום ב-${hhmm(t.toLocalTime())}"; 1L -> "מחר ב-${hhmm(t.toLocalTime())}"; else -> "$dayName ב-${hhmm(t.toLocalTime())}" }
     }
 
+    /** First minute (within 4 days) when street parking in this zone is paid. */
+    fun nextPaidStart(zone: Int?, now: LocalDateTime): LocalDateTime? = groupFor(zone)?.let { nextPaidStart(it, now) }
+
     private fun nextPaidStart(g: ZoneGroup, now: LocalDateTime): LocalDateTime? {
         var t = now.withSecond(0).withNano(0)
-        repeat(4 * 24 * 4) { if (isPaid(g, t)) return t; t = t.plusMinutes(15) }
+        repeat(4 * 24 * 60) { if (isPaid(g, t)) return t; t = t.plusMinutes(1) }
         return null
     }
 

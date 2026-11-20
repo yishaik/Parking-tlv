@@ -84,20 +84,28 @@ fun SignImage(type: SpotType, size: Dp = 64.dp) {
             label(text, Color(0xFF111111), size.value * 0.14f, Offset(w / 2, h * 0.82f))
         }
         when (type) {
-            SpotType.BLUE_WHITE, SpotType.UNMARKED -> {
+            SpotType.BLUE_WHITE, SpotType.UNMARKED, SpotType.RED_WHITE, SpotType.LOADING, SpotType.PERMIT_ONLY -> {
                 drawRoundRect(Asphalt, Offset.Zero, Size(w, h), CornerRadius(w * 0.12f))
                 val curbTop = h * 0.62f
                 val stripes = 5
                 for (i in 0 until stripes) {
-                    val c = if (type == SpotType.UNMARKED) CurbGray else if (i % 2 == 0) SignBlue else Color.White
+                    val c = when (type) {
+                        SpotType.UNMARKED, SpotType.LOADING -> CurbGray
+                        SpotType.RED_WHITE -> if (i % 2 == 0) Color(0xFFD32F2F) else Color.White
+                        else -> if (i % 2 == 0) SignBlue else Color.White
+                    }
                     drawRect(c, Offset(w * i / stripes, curbTop), Size(w / stripes + 1, h * 0.2f))
                 }
                 drawRect(Color(0xFFD9D4C7), Offset(0f, curbTop + h * 0.2f), Size(w, h * 0.18f))
+                if (type == SpotType.PERMIT_ONLY || type == SpotType.LOADING) {
+                    val bg = if (type == SpotType.LOADING) Color(0xFFF59E0B) else Color.White
+                    drawRoundRect(bg, Offset(w * 0.14f, h * 0.12f), Size(w * 0.72f, h * 0.36f), CornerRadius(w * 0.05f))
+                    label(if (type == SpotType.LOADING) "פריקה" else "תו אזורי", Color(0xFF111111), size.value * 0.15f, Offset(w / 2, h * 0.30f))
+                }
             }
             SpotType.GARAGE -> pSign(h * 0.08f, h * 0.84f)
             SpotType.CLOSE_TO_HOME -> { pSign(h * 0.02f, h * 0.62f); plate("לתושבים") }
             SpotType.SHORT_TERM -> { pSign(h * 0.02f, h * 0.62f); plate("60 דק׳") }
-            SpotType.PERMIT_ONLY -> { pSign(h * 0.02f, h * 0.62f); plate("תו אזורי") }
             SpotType.PRIVATE -> {
                 drawRoundRect(Color.White, Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.7f), CornerRadius(w * 0.06f))
                 drawRoundRect(Color(0xFFD32F2F), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.7f), CornerRadius(w * 0.06f), style = Stroke(w * 0.05f))
@@ -111,6 +119,27 @@ fun SignImage(type: SpotType, size: Dp = 64.dp) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SpotTiles(types: List<SpotType>, selected: SpotType?, onPick: (SpotType) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        types.forEach { t ->
+            val sel = selected == t
+            Column(
+                Modifier.width(100.dp).clip(RoundedCornerShape(16.dp))
+                    .border(if (sel) 2.dp else 1.dp, if (sel) Color(0xFF3B82F6) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                    .background(if (sel) Color(0xFF3B82F6).copy(alpha = 0.12f) else Color.Transparent)
+                    .clickable { onPick(t) }.padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SignImage(t, 56.dp)
+                Spacer(Modifier.height(6.dp))
+                Text(t.label, fontSize = 12.sp, maxLines = 2)
+            }
+        }
+    }
+}
+
 /** Bottom sheet shown after parking: pick the sign picture and how long the search took. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -119,23 +148,11 @@ fun ClassifySheet(event: ParkingEvent, onSave: (SpotType?, SearchTime?) -> Unit,
     var search by remember { mutableStateOf(SearchTime.of(event.search)) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("איזו חניה זו?", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SpotType.entries.forEach { t ->
-                    val selected = type == t
-                    Column(
-                        Modifier.width(100.dp).clip(RoundedCornerShape(16.dp))
-                            .border(if (selected) 2.dp else 1.dp, if (selected) Color(0xFF3B82F6) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-                            .background(if (selected) Color(0xFF3B82F6).copy(alpha = 0.12f) else Color.Transparent)
-                            .clickable { type = t }.padding(vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        SignImage(t, 56.dp)
-                        Spacer(Modifier.height(6.dp))
-                        Text(t.label, fontSize = 12.sp, maxLines = 2)
-                    }
-                }
-            }
+            Text("מה צבע המדרכה איפה שחנית?", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            event.street?.let { Text("ליד $it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            SpotTiles(SpotType.curbs, type) { type = it }
+            Text("או שחנית מחוץ לרחוב", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SpotTiles(SpotType.offStreet, type) { type = it }
             Text("כמה זמן חיפשת?", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SearchTime.entries.forEach { s ->

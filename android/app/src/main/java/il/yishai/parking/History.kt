@@ -14,15 +14,22 @@ import java.util.UUID
 /** Parking types the user marks after parking, each shown as a picture of the sign/curb. */
 enum class SpotType(val key: String, val label: String) {
     BLUE_WHITE("blue_white", "כחול-לבן"),
-    PERMIT_ONLY("permit_only", "לבעלי תו אזורי"),
-    UNMARKED("unmarked", "ללא סימון (חינם)"),
+    PERMIT_ONLY("permit_only", "מועדפת / תו אזורי"),
+    UNMARKED("unmarked", "אפור / ללא סימון"),
+    RED_WHITE("red_white", "אדום-לבן"),
+    LOADING("loading", "פריקה וטעינה"),
     GARAGE("garage", "חניון"),
     CLOSE_TO_HOME("close_to_home", "חניון קרוב לבית"),
     SHORT_TERM("short_term", "קצרת מועד"),
     PRIVATE("private", "חניה פרטית"),
     OTHER("other", "אחר");
 
-    companion object { fun of(k: String?) = entries.firstOrNull { it.key == k } }
+    companion object {
+        fun of(k: String?) = entries.firstOrNull { it.key == k }
+        /** Curb colors shown first in the picker; the rest are off-street options. */
+        val curbs = listOf(BLUE_WHITE, UNMARKED, PERMIT_ONLY, SHORT_TERM, RED_WHITE, LOADING)
+        val offStreet = listOf(GARAGE, CLOSE_TO_HOME, PRIVATE, OTHER)
+    }
 }
 
 /** How long the search took — the signal for "where is it worth looking". */
@@ -91,16 +98,51 @@ object Parking {
         LastSpotStore(app).save(lat, lon, source)
         val repo = ParkingRepository(app)
         val zone = repo.zoneAt(lat, lon)
-        val e = ParkingEvent(UUID.randomUUID().toString(), lat, lon, System.currentTimeMillis(), source, zone, repo.streetNear(lat, lon), null, null)
         val history = HistoryStore(app)
+        val used = freeMinutesUsedToday(repo.rules, history.all())
+        val e = ParkingEvent(UUID.randomUUID().toString(), lat, lon, System.currentTimeMillis(), source, zone, repo.streetNear(lat, lon), null, null)
         history.add(e)
-        Reminders.schedule(app, repo.rules, zone)
-        if (source != "manual") Notifications.askType(app, e.id)
+        Reminders.schedule(app, repo.rules, zone, repo.onPermitBoundary(lat, lon), used)
+        if (source != "manual") Notifications.askType(app, e.id, e.street)
         CoroutineScope(Dispatchers.IO).launch {
             if (e.street == null) streetAt(app, lat, lon)?.let { s -> history.update(e.id) { it.copy(street = s) } }
             Sync.push(app)
         }
         return e
+    }
+
+    /** Saves the parking type (from the app or the notification), adds the curb to the map, sets type-specific reminders. */
+    fun classify(ctx: Context, id: String, type: SpotType?, search: SearchTime?) {
+        val app = ctx.applicationContext
+        val history = HistoryStore(app)
+        val ev = history.get(id) ?: return
+        history.update(id) { it.copy(type = type?.key, search = search?.key ?: it.search, synced = false) }
+        CurbType.fromSpot(type)?.let { c -> CurbStore(app).add(ev.lat, ev.lon, c, ev.street ?: ParkingRepository(app).streetNear(ev.lat, ev.lon), "parking") }
+        if (type == SpotType.SHORT_TERM) Reminders.shortTerm(app, ev.time)
+        if (type == SpotType.GARAGE || type == SpotType.CLOSE_TO_HOME || type == SpotType.PRIVATE) Reminders.cancelAll(app)
+        CoroutineScope(Dispatchers.IO).launch { Sync.push(app) }
+    }
+
+    /**
+     * Estimate of today's free street minutes already used outside the permit zone:
+     * paid-window minutes from each of today's parkings until the next one (capped at the daily allowance).
+     */
+    private fun freeMinutesUsedToday(rules: Rules, events: List<ParkingEvent>): Int {
+        val zoneId = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now()
+        val sorted = events.sortedBy { it.time }
+        var used = 0
+        sorted.forEachIndexed { i, e ->
+            val start = java.time.Instant.ofEpochMilli(e.time).atZone(zoneId).toLocalDateTime()
+            if (start.toLocalDate() != today || e.zone == null || e.zone == rules.permitZone) return@forEachIndexed
+            if (e.type in setOf(SpotType.GARAGE.key, SpotType.CLOSE_TO_HOME.key, SpotType.PRIVATE.key)) return@forEachIndexed
+            val g = rules.groupFor(e.zone) ?: return@forEachIndexed
+            val endMillis = sorted.getOrNull(i + 1)?.time ?: System.currentTimeMillis()
+            var t = start
+            val end = java.time.Instant.ofEpochMilli(endMillis).atZone(zoneId).toLocalDateTime()
+            while (t.isBefore(end) && used < rules.outsideFreeMinutes) { if (rules.isPaid(g, t)) used++; t = t.plusMinutes(1) }
+        }
+        return used.coerceAtMost(rules.outsideFreeMinutes)
     }
 
     @Suppress("DEPRECATION")
