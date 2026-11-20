@@ -131,7 +131,7 @@ class NearbyScreen(carContext: CarContext) : Screen(carContext) {
         }
         for (g in list) {
             if (n >= limit) break
-            val status = g.status.ifBlank { "אין מידע" }
+            val status = il.yishai.parking.statusLabel(g.status)
             items.addItem(row(g.name, listOf(status, distanceText(g.distance)).filter { it.isNotBlank() }.joinToString(" · "), g.lat, g.lon, null))
             n++
         }

@@ -38,6 +38,17 @@ data class NightLot(
     val distance: Double = Double.NaN,
 )
 
+fun statusLabel(s: String): String = when (s) {
+    "פנוי" -> "יש מקום"
+    "מעט" -> "מעט מקום"
+    "מלא" -> "מלא"
+    "סגור" -> "סגור"
+    "פעיל" -> "פתוח · אין נתוני תפוסה"
+    else -> "אין מידע"
+}
+
+data class NamedPlace(val label: String, val lat: Double, val lon: Double)
+
 class Zone(val number: Int, val rings: List<List<DoubleArray>>)
 
 fun distanceText(meters: Double): String = when {
@@ -104,6 +115,11 @@ class ParkingRepository(private val context: Context) {
             val a = f.getJSONObject("attributes")
             NightLot(a.str("shem"), a.str("ktovet"), g.getDouble("y"), g.getDouble("x"), a.str("taarif_layla"), a.str("hearot_atar"))
         }
+    }
+
+    val places: List<NamedPlace> by lazy {
+        val a = JSONArray(asset("places.json"))
+        (0 until a.length()).map { val o = a.getJSONObject(it); NamedPlace(o.getString("label"), o.getDouble("lat"), o.getDouble("lon")) }
     }
 
     /** Live garage list from the city GIS (layer 970); falls back to the bundled snapshot. Second = live? */
