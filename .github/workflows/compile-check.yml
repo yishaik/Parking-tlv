@@ -1,5 +1,5 @@
 name: compile-check
-# Compiles only. Publishes nothing and does not consume a version number.
+# Full debug build to catch code, resource and manifest errors. Publishes nothing.
 on:
   push:
     branches: [main]
@@ -13,4 +13,4 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.10.2" }
-      - run: gradle -p android compileDebugKotlin
+      - run: gradle -p android assembleDebug
