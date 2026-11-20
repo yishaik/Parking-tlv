@@ -184,8 +184,7 @@ fun ParkingScreen(dark: Boolean) {
     val summary = if (pLat == null) null else repo.rules.summary(pZone, LocalDateTime.now())
     val garages = if (pLat == null || pLon == null) emptyList() else
         state.garages.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.sortedBy { it.distance }.take(8)
-    val nightLots = if (pLat == null || pLon == null) emptyList() else
-        repo.nightLots.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.filter { it.distance < 1200 }.sortedBy { it.distance }.take(4)
+    val nightByName = remember { repo.nightLots.associateBy { it.name.trim() } }
     val autoReady = carName != null && hasBackground
     val cardColor = if (dark) Color(0xFF191C22) else Color.White
 
@@ -206,7 +205,7 @@ fun ParkingScreen(dark: Boolean) {
         },
     ) { inner ->
         LazyColumn(
-            Modifier.fillMaxSize().statusBarsPadding(),
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = inner.calculateBottomPadding() + 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -265,8 +264,8 @@ fun ParkingScreen(dark: Boolean) {
                             Text("הרכב שלי", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                             val sub = when {
                                 s == null -> "לא שמור מקום חניה"
-                                state.myLat != null -> "חנית ${s.timeText()} · ${distanceText(Geo.distance(state.myLat!!, state.myLon!!, s.lat, s.lon))} ממך"
-                                else -> "חנית ${s.timeText()}"
+                                state.myLat != null -> "${s.timeText()} · ${distanceText(Geo.distance(state.myLat!!, state.myLon!!, s.lat, s.lon))}"
+                                else -> s.timeText()
                             }
                             Text(sub, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -287,7 +286,7 @@ fun ParkingScreen(dark: Boolean) {
                         Icon(Icons.Outlined.Bluetooth, null, Modifier.size(18.dp), tint = if (autoReady) Color(0xFF22C55E) else Color(0xFFF59E0B))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            if (autoReady) "שמירה אוטומטית פעילה · $carName" else "הפעל שמירה אוטומטית כשיוצאים מהרכב",
+                            if (autoReady) "שמירה אוטומטית · $carName" else "הפעל שמירה אוטומטית",
                             fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
                         )
                         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -303,30 +302,21 @@ fun ParkingScreen(dark: Boolean) {
                     if (garages.isEmpty()) Text(if (state.loading) "טוען…" else "אין חניונים להצגה", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     garages.forEachIndexed { i, g ->
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        GarageRow(g, expanded == g.name, onToggle = { expanded = if (expanded == g.name) null else g.name }) { Launch.navigate(ctx, g.lat, g.lon) }
+                        GarageRow(g, nightByName[g.name.trim()], expanded == g.name, onToggle = { expanded = if (expanded == g.name) null else g.name }) { Launch.navigate(ctx, g.lat, g.lon) }
                     }
                 }
             }
 
-            if (nightLots.isNotEmpty()) {
-                item { SectionHeader("חניוני 'קרוב לבית'", "חינם בלילה ובסופ״ש לתו משויך", null) }
-                item {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardColor)) {
-                        nightLots.forEachIndexed { i, l ->
-                            if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            Row(Modifier.fillMaxWidth().clickable { Launch.navigate(ctx, l.lat, l.lon) }.padding(16.dp, 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(l.name, fontWeight = FontWeight.SemiBold)
-                                    if (l.nightTariff.isNotBlank()) Text(l.nightTariff, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                                }
-                                Text(distanceText(l.distance), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
+}
+
+@Composable
+private fun Tag(text: String) {
+    Text(
+        text, fontSize = 11.sp, color = Color(0xFF3B82F6),
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFF3B82F6).copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
@@ -372,7 +362,7 @@ private fun SoftButton(label: String, icon: ImageVector, modifier: Modifier, dar
 }
 
 @Composable
-private fun GarageRow(g: Garage, open: Boolean, onToggle: () -> Unit, onNavigate: () -> Unit) {
+private fun GarageRow(g: Garage, night: NightLot?, open: Boolean, onToggle: () -> Unit, onNavigate: () -> Unit) {
     Column(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onToggle).padding(16.dp, 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(12.dp).clip(CircleShape).background(occupancyColor(g.status)))
@@ -380,6 +370,11 @@ private fun GarageRow(g: Garage, open: Boolean, onToggle: () -> Unit, onNavigate
             Column(Modifier.weight(1f)) {
                 Text(g.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(statusLabel(g.status), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val tags = buildList {
+                    if (night != null) add("קרוב לבית")
+                    Regex("(\\d{2})%").find(night?.notes.orEmpty() + " " + g.notes)?.let { add("${it.groupValues[1]}% לתושב") }
+                }
+                if (tags.isNotEmpty()) Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { tags.forEach { Tag(it) } }
             }
             Text(distanceText(g.distance), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -388,6 +383,7 @@ private fun GarageRow(g: Garage, open: Boolean, onToggle: () -> Unit, onNavigate
             Column(Modifier.padding(start = 24.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (g.dayTariff.isNotBlank()) Text(g.dayTariff, fontSize = 13.sp)
                 if (g.nightTariff.isNotBlank()) Text("לילה: ${g.nightTariff}", fontSize = 13.sp)
+                if (night != null) Text("חניון 'קרוב לבית': חינם בלילות ובסופי שבוע לבעלי תו משויך", fontSize = 13.sp)
                 if (g.notes.isNotBlank()) Text(g.notes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Surface(onClick = onNavigate, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.onSurface) {
                     Text("נווט לחניון", Modifier.padding(horizontal = 16.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.SemiBold)
