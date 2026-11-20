@@ -72,7 +72,7 @@ class DriveTracker(private val ctx: Context) : DefaultLifecycleObserver {
 
     override fun onDestroy(owner: LifecycleOwner) {
         fused.removeLocationUpdates(callback)
-        last?.let { LastSpotStore(ctx).save(it.latitude, it.longitude, "android-auto") }
+        last?.let { il.yishai.parking.Parking.record(ctx, it.latitude, it.longitude, "android-auto") }
     }
 }
 

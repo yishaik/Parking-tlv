@@ -23,7 +23,7 @@ class CarDisconnectReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                LocationHelper.current(context, timeoutMs = 7000)?.let { store.save(it.latitude, it.longitude, "bluetooth") }
+                LocationHelper.current(context, timeoutMs = 7000)?.let { Parking.record(context, it.latitude, it.longitude, "bluetooth") }
             } finally {
                 pending.finish()
             }

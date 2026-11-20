@@ -5,7 +5,9 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.Build
+import android.content.Intent
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -43,6 +45,9 @@ import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.LocalParking
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.PinDrop
@@ -71,6 +76,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -80,13 +87,21 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private val classifyRequest = mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(Notifications.EXTRA_CLASSIFY)?.let { classifyRequest.value = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        classifyRequest.value = intent?.getStringExtra(Notifications.EXTRA_CLASSIFY)
         setContent {
             val dark = isSystemInDarkTheme()
             MaterialTheme(colorScheme = if (dark) darkColorScheme(background = Color(0xFF0F1115), surface = Color(0xFF0F1115)) else lightColorScheme(background = Color(0xFFF3F4F6), surface = Color(0xFFF3F4F6))) {
-                ParkingScreen(dark)
+                ParkingScreen(dark, classifyRequest.value) { classifyRequest.value = null }
             }
         }
     }
@@ -121,7 +136,7 @@ data class UiState(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ParkingScreen(dark: Boolean) {
+fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClassify: () -> Unit) {
     val ctx = LocalContext.current.applicationContext
     val repo = remember { ParkingRepository(ctx) }
     val store = remember { LastSpotStore(ctx) }
@@ -134,6 +149,17 @@ fun ParkingScreen(dark: Boolean) {
     var setupOpen by remember { mutableStateOf(false) }
     var pickCar by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf<String?>(null) }
+    val history = remember { HistoryStore(ctx) }
+    var events by remember { mutableStateOf(history.all()) }
+    var classifying by remember { mutableStateOf<ParkingEvent?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(classifyFromNotification) {
+        classifyFromNotification?.let { id -> history.get(id)?.let { classifying = it }; consumeClassify() }
+    }
+    BackHandler(enabled = showHistory) { showHistory = false }
 
     fun refresh() {
         scope.launch {
@@ -151,6 +177,11 @@ fun ParkingScreen(dark: Boolean) {
     val backgroundPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasBackground = Perms.hasBackground(ctx) }
     val btPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) pickCar = true }
 
+    val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && !Perms.has(ctx, Manifest.permission.POST_NOTIFICATIONS)) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+        scope.launch { Sync.push(ctx) }
+    }
     LaunchedEffect(Unit) {
         if (Perms.hasLocation(ctx)) refresh()
         else locationPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
@@ -177,6 +208,22 @@ fun ParkingScreen(dark: Boolean) {
         },
         confirmButton = { TextButton(onClick = { setupOpen = false }) { Text("סגור") } },
     )
+
+    classifying?.let { ev ->
+        ClassifySheet(ev, onSave = { t, sTime ->
+            history.update(ev.id) { it.copy(type = t?.key, search = sTime?.key, synced = false) }
+            events = history.all(); classifying = null
+            scope.launch { Sync.push(ctx) }
+        }, onDismiss = { classifying = null })
+    }
+
+    val cardColorTop = if (dark) Color(0xFF191C22) else Color.White
+    if (showHistory) {
+        HistoryScreen(cardColorTop, onBack = { showHistory = false }, onEdit = { classifying = it }, onDelete = { e ->
+            history.delete(e.id); events = history.all(); scope.launch { Sync.delete(ctx, e.id) }
+        }, events = events)
+        return
+    }
 
     val f = focus ?: HERE
     val place = repo.places.getOrNull(f)
@@ -217,6 +264,8 @@ fun ParkingScreen(dark: Boolean) {
                         Text(LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE · HH:mm", Locale("he"))), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("חניה בת״א", fontSize = 26.sp, fontWeight = FontWeight.Bold)
                     }
+                    CircleIcon(Icons.Outlined.History, "היסטוריה", cardColor, MaterialTheme.colorScheme.onSurface) { events = history.all(); showHistory = true }
+                    Spacer(Modifier.width(8.dp))
                     CircleIcon(Icons.Outlined.Refresh, "רענן", cardColor, MaterialTheme.colorScheme.onSurface) { refresh() }
                 }
             }
@@ -277,7 +326,7 @@ fun ParkingScreen(dark: Boolean) {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SoftButton("חניתי כאן", Icons.Outlined.PinDrop, Modifier.weight(1f), dark) {
-                            if (state.myLat != null) { store.save(state.myLat!!, state.myLon!!, "manual"); spot = store.load() }
+                            if (state.myLat != null) { val e = Parking.record(ctx, state.myLat!!, state.myLon!!, "manual"); spot = store.load(); events = history.all(); classifying = e }
                         }
                         if (s != null) SoftButton("מחק", Icons.Outlined.Delete, Modifier.weight(1f), dark) { store.clear(); spot = null }
                     }
@@ -296,6 +345,18 @@ fun ParkingScreen(dark: Boolean) {
                 }
             }
 
+            events.firstOrNull()?.takeIf { it.type == null }?.let { last ->
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xFFF59E0B).copy(alpha = 0.15f)).clickable { classifying = last }.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("סמן איזו חניה הייתה האחרונה", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null)
+                    }
+                }
+            }
+
             item {
                 SectionHeader("חניונים קרובים", if (state.live) "תפוסה חיה" else "נתונים שמורים", if (state.live) Color(0xFF22C55E) else null)
             }
@@ -306,6 +367,28 @@ fun ParkingScreen(dark: Boolean) {
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         GarageRow(g, nightByName[g.name.trim()], expanded == g.name, onToggle = { expanded = if (expanded == g.name) null else g.name }) { Launch.navigate(ctx, g.lat, g.lon) }
                     }
+                }
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cardColor).clickable {
+                        scope.launch {
+                            val base = Sync.baseUrl(ctx)
+                            val token = Sync.token(ctx)
+                            if (base == null || token == null) copied = "השרת עוד לא מחובר"
+                            else { clipboard.setText(AnnotatedString(Sync.agentPrompt(base, token))); copied = "הפרומפט הועתק" }
+                        }
+                    }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.SmartToy, null)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("העתק פרומפט לאייג'נט", fontWeight = FontWeight.SemiBold)
+                        Text(copied ?: "חיבור ל-MCP: חניה ליד יעד, הרכב שלי, היסטוריה", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Outlined.ContentCopy, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
