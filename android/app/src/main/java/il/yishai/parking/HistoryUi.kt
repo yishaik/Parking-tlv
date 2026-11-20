@@ -146,10 +146,19 @@ private fun SpotTiles(types: List<SpotType>, selected: SpotType?, onPick: (SpotT
 fun ClassifySheet(event: ParkingEvent, onSave: (SpotType?, SearchTime?) -> Unit, onDismiss: () -> Unit) {
     var type by remember { mutableStateOf(SpotType.of(event.type)) }
     var search by remember { mutableStateOf(SearchTime.of(event.search)) }
+    var photoNote by remember { mutableStateOf<String?>(null) }
+    val camera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp == null) return@rememberLauncherForActivityResult
+        val guess = CurbPhoto.detect(bmp)
+        if (guess != null) { type = guess; photoNote = "מהתמונה זה נראה כמו ${guess.label}. בדוק ואשר." }
+        else photoNote = "לא הצלחתי לזהות מהתמונה. נסה לצלם מקרוב, כשהמדרכה ממלאת את חלקו התחתון של הפריים."
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("מה צבע המדרכה איפה שחנית?", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             event.street?.let { Text("ליד $it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            androidx.compose.material3.OutlinedButton(onClick = { camera.launch(null) }) { Text("צלם את המדרכה וזהה צבע") }
+            photoNote?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             SpotTiles(SpotType.curbs, type) { type = it }
             Text("או שחנית מחוץ לרחוב", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SpotTiles(SpotType.offStreet, type) { type = it }

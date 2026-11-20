@@ -92,14 +92,27 @@ class NearbyScreen(carContext: CarContext) : Screen(carContext) {
                 list.map { it.copy(distance = Geo.distance(loc.latitude, loc.longitude, it.lat, it.lon)) }.sortedBy { it.distance }
             } else list
             zone = loc?.let { repo.zoneAt(it.latitude, it.longitude) }
+            boundary = loc?.let { repo.onPermitBoundary(it.latitude, it.longitude) } ?: false
+            lastLoc = loc
             invalidate()
         }
     }
 
+    private var boundary = false
+    private var lastLoc: android.location.Location? = null
+
     private fun title(): String {
-        val r = repo.rules
-        val z = zone ?: return "חניה בת״א"
-        return if (r.hasPermit && z == r.permitZone) "אזור $z · חינם עם תו" else "אזור $z · שעתיים חינם"
+        val z = zone
+        val ex = repo.rules.explain(z, java.time.LocalDateTime.now(), boundary)
+        return if (z == null && !boundary) "חניה בת״א" else "אזור ${z ?: ""} · ${ex.headline}"
+    }
+
+    private fun parkHere() {
+        val l = lastLoc
+        if (l == null) { androidx.car.app.CarToast.makeText(carContext, "אין מיקום כרגע", androidx.car.app.CarToast.LENGTH_SHORT).show(); return }
+        il.yishai.parking.Parking.record(carContext, l.latitude, l.longitude, "android-auto")
+        androidx.car.app.CarToast.makeText(carContext, "נשמר. תבחר צבע מדרכה בטלפון", androidx.car.app.CarToast.LENGTH_LONG).show()
+        invalidate()
     }
 
     private fun navigate(lat: Double, lon: Double) {
@@ -119,7 +132,12 @@ class NearbyScreen(carContext: CarContext) : Screen(carContext) {
         val builder = PlaceListMapTemplate.Builder()
             .setTitle(title())
             .setHeaderAction(Action.APP_ICON)
-            .setActionStrip(ActionStrip.Builder().addAction(Action.Builder().setTitle("רענן").setOnClickListener { garages = null; invalidate(); reload() }.build()).build())
+            .setActionStrip(
+                ActionStrip.Builder()
+                    .addAction(Action.Builder().setTitle("חניתי").setOnClickListener { parkHere() }.build())
+                    .addAction(Action.Builder().setTitle("רענן").setOnClickListener { garages = null; invalidate(); reload() }.build())
+                    .build(),
+            )
         val list = garages ?: return builder.setLoading(true).build()
 
         val limit = carContext.getCarService(ConstraintManager::class.java)

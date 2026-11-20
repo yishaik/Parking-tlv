@@ -47,6 +47,10 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.BrightnessAuto
@@ -96,16 +100,21 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val classifyRequest = mutableStateOf<String?>(null)
+    private val parkRequest = mutableStateOf(false)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(Notifications.EXTRA_CLASSIFY)?.let { classifyRequest.value = it }
+        if (intent.action == ACTION_PARK_HERE) parkRequest.value = true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         classifyRequest.value = intent?.getStringExtra(Notifications.EXTRA_CLASSIFY)
+        parkRequest.value = intent?.action == ACTION_PARK_HERE
+        WeeklyReport.schedule(this)
+        GarageWatch.schedule(this)
         val prefs = getSharedPreferences("ui", MODE_PRIVATE)
         setContent {
             // "system" | "dark" | "light"
@@ -121,7 +130,8 @@ class MainActivity : ComponentActivity() {
                 ParkingScreen(dark, themeMode, onThemeToggle = {
                     themeMode = when (themeMode) { "system" -> "dark"; "dark" -> "light"; else -> "system" }
                     prefs.edit().putString("theme", themeMode).apply()
-                }, classifyFromNotification = classifyRequest.value) { classifyRequest.value = null }
+                }, parkRequested = parkRequest.value, consumePark = { parkRequest.value = false },
+                    classifyFromNotification = classifyRequest.value) { classifyRequest.value = null }
             }
         }
     }
@@ -156,7 +166,10 @@ data class UiState(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, classifyFromNotification: String?, consumeClassify: () -> Unit) {
+fun ParkingScreen(
+    dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, parkRequested: Boolean, consumePark: () -> Unit,
+    classifyFromNotification: String?, consumeClassify: () -> Unit,
+) {
     val ctx = LocalContext.current.applicationContext
     val repo = remember { ParkingRepository(ctx) }
     val store = remember { LastSpotStore(ctx) }
@@ -172,6 +185,9 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
     var pangoEnd by remember { mutableStateOf(PangoSession.endTime(ctx)) }
     var showMap by remember { mutableStateOf(false) }
     var heroExpanded by remember { mutableStateOf(false) }
+    var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
+    var overrideUntil by remember { mutableStateOf(FreeOverride.until(ctx)) }
+    var watchTick by remember { mutableStateOf(0) }
     val curbStore = remember { CurbStore(ctx) }
     var curbMarks by remember { mutableStateOf(curbStore.all()) }
     val assignedPrefs = remember { ctx.getSharedPreferences("assigned", android.content.Context.MODE_PRIVATE) }
@@ -216,6 +232,17 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33 && !Perms.has(ctx, Manifest.permission.POST_NOTIFICATIONS)) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
         scope.launch { Sync.push(ctx) }
+    }
+    LaunchedEffect(Unit) { notices = Notices.fetch() }
+    // Widget / Quick Settings tile: save the spot as soon as we have a location.
+    LaunchedEffect(parkRequested) {
+        if (!parkRequested) return@LaunchedEffect
+        consumePark()
+        val loc = LocationHelper.current(ctx)
+        if (loc != null) {
+            val e = Parking.record(ctx, loc.latitude, loc.longitude, "manual")
+            spot = store.load(); events = history.all(); classifying = e
+        }
     }
     LaunchedEffect(Unit) {
         if (Perms.hasLocation(ctx)) refresh()
@@ -281,7 +308,7 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
 
     if (showMap) {
         val c = repo.places.getOrNull(focus ?: HERE)?.let { it.lat to it.lon } ?: state.myLat?.let { it to state.myLon!! }
-        MapScreen(repo, state.garages, spot, c, onBack = { showMap = false; curbMarks = curbStore.all() }, onCurbsChanged = { curbMarks = curbStore.all(); scope.launch { Sync.push(ctx) } })
+        MapScreen(repo, state.garages, spot, c, events, onBack = { showMap = false; curbMarks = curbStore.all() }, onCurbsChanged = { curbMarks = curbStore.all(); scope.launch { Sync.push(ctx) } })
         return
     }
 
@@ -403,6 +430,54 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
                 }
             }
 
+            if (overrideUntil != null || notices.isNotEmpty()) {
+                item {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xFFF59E0B).copy(alpha = 0.14f)).padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        overrideUntil?.let { u ->
+                            Text("מצב 'חניה חינם בכחול-לבן' פעיל עד ${java.text.SimpleDateFormat("EEE HH:mm", Locale("he")).format(java.util.Date(u))}", fontWeight = FontWeight.Bold)
+                            TextButton(onClick = { FreeOverride.clear(ctx); overrideUntil = null }) { Text("כבה") }
+                        }
+                        notices.take(3).forEach { n ->
+                            val label = when (n.kind) { Notice.Kind.FREE_PARKING -> "חניה חינם?"; Notice.Kind.PRICE_CHANGE -> "שינוי מחיר"; Notice.Kind.EVENT -> "אירוע באזור" }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f).clickable { Launch.web(ctx, n.link) }) {
+                                    Text("$label · ${n.source}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(n.title, fontSize = 14.sp, maxLines = 2)
+                                }
+                                if (n.kind == Notice.Kind.FREE_PARKING && overrideUntil == null) TextButton(onClick = {
+                                    val midnight = java.time.LocalDate.now().plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                                    FreeOverride.set(ctx, midnight); overrideUntil = midnight
+                                }) { Text("הפעל עד חצות") }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (pLat != null && pLon != null) {
+                item {
+                    val plan = remember(pLat, pLon, events.size, curbMarks.size) { Planner.searchRoute(repo, events, curbMarks, pLat, pLon) }
+                    plan?.let { r ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cardColor).clickable { Launch.web(ctx, r.url) }.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Outlined.Route, null, tint = Color(0xFF3B82F6))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("מסלול חיפוש חניה${place?.let { " ל${it.label}" } ?: ""}", fontWeight = FontWeight.SemiBold)
+                                Text(r.streets.joinToString(" ← "), fontSize = 13.sp, maxLines = 1)
+                                Text(r.reason, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null)
+                        }
+                    }
+                }
+            }
+
             pangoEnd?.let { end ->
                 item {
                     Row(
@@ -446,6 +521,9 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
                         SoftButton("חניתי כאן", Icons.Outlined.PinDrop, Modifier.weight(1f), dark) {
                             if (state.myLat != null) { val e = Parking.record(ctx, state.myLat!!, state.myLon!!, "manual"); spot = store.load(); events = history.all(); classifying = e }
                         }
+                        if (s != null) SoftButton("שתף", Icons.Outlined.Share, Modifier.weight(1f), dark) {
+                            ctx.startActivity(shareCarIntent(s, events.firstOrNull()?.street ?: repo.streetNear(s.lat, s.lon)))
+                        }
                         if (s != null) SoftButton("מחק", Icons.Outlined.Delete, Modifier.weight(1f), dark) { store.clear(); spot = null }
                     }
                     Row(
@@ -485,9 +563,14 @@ fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, c
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         val night = nightByName[g.name.trim()]
                         val mine = night != null && g.name.trim() in assigned
+                        val exception = closeToHomeException(g.name)
+                        val watching = remember(watchTick, g.name) { GarageWatch.isWatched(ctx, g.name) }
                         GarageRow(
                             g, night, expanded == g.name,
-                            assignedNote = when { !mine -> null; repo.rules.closeToHomeFree(now) -> "משויך לך · חינם עכשיו"; else -> "משויך לך · חינם מ-${repo.rules.closeToHomeFreeFrom(now)}" },
+                            assignedNote = when { !mine -> null; exception != null -> "משויך לך · שעות מיוחדות"; repo.rules.closeToHomeFree(now) -> "משויך לך · חינם עכשיו"; else -> "משויך לך · חינם מ-${repo.rules.closeToHomeFreeFrom(now)}" },
+                            exception = exception,
+                            watching = watching,
+                            onToggleWatch = { GarageWatch.toggle(ctx, g.name, g.status); watchTick++ },
                             onToggleAssigned = if (night == null) null else ({
                                 assigned = if (mine) assigned - g.name.trim() else assigned + g.name.trim()
                                 assignedPrefs.edit().putStringSet("lots", assigned).apply()
@@ -597,8 +680,8 @@ private fun SoftButton(label: String, icon: ImageVector, modifier: Modifier, dar
 
 @Composable
 private fun GarageRow(
-    g: Garage, night: NightLot?, open: Boolean, assignedNote: String?, onToggleAssigned: (() -> Unit)?, isAssigned: Boolean,
-    onToggle: () -> Unit, onNavigate: () -> Unit,
+    g: Garage, night: NightLot?, open: Boolean, assignedNote: String?, exception: String?, watching: Boolean, onToggleWatch: () -> Unit,
+    onToggleAssigned: (() -> Unit)?, isAssigned: Boolean, onToggle: () -> Unit, onNavigate: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onToggle).padding(16.dp, 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -609,6 +692,7 @@ private fun GarageRow(
                 Text(statusLabel(g.status), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val tags = buildList {
                     if (assignedNote != null) add(assignedNote) else if (night != null) add("קרוב לבית")
+                    if (watching) add("מעקב פעיל")
                     Regex("(\\d{2})%").find(night?.notes.orEmpty() + " " + g.notes)?.let { add("${it.groupValues[1]}% לתושב") }
                 }
                 if (tags.isNotEmpty()) Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { tags.forEach { Tag(it) } }
@@ -620,7 +704,13 @@ private fun GarageRow(
             Column(Modifier.padding(start = 24.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (g.dayTariff.isNotBlank()) Text(g.dayTariff, fontSize = 13.sp)
                 if (g.nightTariff.isNotBlank()) Text("לילה: ${g.nightTariff}", fontSize = 13.sp)
-                if (night != null) Text("חניון 'קרוב לבית': חינם לבעלי תו משויך בא׳–ה׳ 19:00–08:00, ובשישי וערבי חג מ-15:00 עד ראשון 08:00 / צאת החג", fontSize = 13.sp)
+                if (night != null) Text(exception?.let { "חניון 'קרוב לבית' עם שעות מיוחדות: $it" }
+                    ?: "חניון 'קרוב לבית': חינם לבעלי תו משויך בא׳–ה׳ 19:00–08:00, ובשישי וערבי חג מ-15:00 עד ראשון 08:00 / צאת החג", fontSize = 13.sp)
+                TextButton(onClick = onToggleWatch) {
+                    Icon(if (watching) Icons.Outlined.NotificationsOff else Icons.Outlined.NotificationsActive, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (watching) "הפסק מעקב" else "התראה כשמתפנה / מתמלא (3 שעות)")
+                }
                 if (onToggleAssigned != null) TextButton(onClick = onToggleAssigned) {
                     Text(if (isAssigned) "הסר: החניון לא משויך אליי" else "החניון הזה משויך אליי (לפי דיגיתל / 3013*)")
                 }
@@ -669,4 +759,15 @@ private fun CarPicker(ctx: Context, onPick: (String, String) -> Unit, onDismiss:
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("ביטול") } },
     )
+}
+
+
+/** Close-to-home lots with their own hours (tel-aviv.gov.il ParkingArrangements). */
+fun closeToHomeException(name: String): String? = when {
+    "רוטשילד" in name || name.trim() == "התרבות" -> "א׳–ה׳ מ-22:00; בסופ״ש עד שבת 12:00, ומ-22:00 עד 07:00 למחרת"
+    "רמז" in name -> "א׳–ה׳ מ-21:00; שישי מ-16:00 עד 08:00 למחרת; שבת מ-16:00 עד 07:00 למחרת"
+    "מפעל הפיס" in name -> "עד 08:00 בבוקר"
+    "מוזיאון" in name -> "22:00–08:00 כל יום, כולל שבת וחג, בהצגת תעודה מזהה"
+    "שרתון 2" in name -> "19:00–06:30 כל יום, כולל שבת וחג"
+    else -> null
 }

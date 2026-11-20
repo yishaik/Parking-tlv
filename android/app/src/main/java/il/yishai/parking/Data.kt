@@ -121,9 +121,12 @@ class ParkingRepository(private val context: Context) {
     private fun asset(name: String) = context.assets.open(name).bufferedReader().use { it.readText() }
     private fun features(name: String): JSONArray = try { JSONObject(asset(name)).getJSONArray("features") } catch (_: Exception) { JSONArray() }
 
-    val rules: Rules by lazy {
+    private val baseRules: Rules by lazy {
         Rules.parse(JSONObject(asset("rules.json")), try { JSONObject(asset("holidays.json")) } catch (_: Exception) { null })
     }
+
+    /** Config rules, plus the user-confirmed free-parking switch when it is on. */
+    val rules: Rules get() = baseRules.withOverride(baseRules.freeOverride || FreeOverride.until(context) != null)
 
     val zones: List<Zone> by lazy {
         val fs = features("zones.json")

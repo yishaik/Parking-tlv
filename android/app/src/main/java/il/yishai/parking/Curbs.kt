@@ -16,7 +16,8 @@ enum class CurbType(val key: String, val label: String, val color: Long) {
     LOADING("loading", "פריקה וטעינה", 0xFFF59E0B),
     DISABLED("disabled", "נכים", 0xFF14B8A6),
     BUS_TAXI("bus_taxi", "תחנת אוטובוס / מונית", 0xFFEAB308),
-    DRIVEWAY("driveway", "כניסה לחניה / חסום", 0xFF4B5563);
+    DRIVEWAY("driveway", "כניסה לחניה / חסום", 0xFF4B5563),
+    SCHOOL_LOT("school_lot", "חניון בית ספר (אחרי הלימודים)", 0xFF10B981);
 
     companion object {
         fun of(k: String?) = entries.firstOrNull { it.key == k }

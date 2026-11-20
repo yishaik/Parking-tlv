@@ -108,6 +108,7 @@ fun MapScreen(
     garages: List<Garage>,
     spot: Spot?,
     center: Pair<Double, Double>?,
+    events: List<ParkingEvent>,
     onBack: () -> Unit,
     onCurbsChanged: () -> Unit,
 ) {
@@ -117,7 +118,8 @@ fun MapScreen(
     var pending by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var mapRef by remember { mutableStateOf<MapView?>(null) }
 
-    fun redraw(map: MapView) = drawOverlays(ctx, map, repo, garages, spot, marks) { lat, lon -> pending = lat to lon }
+    val odds = remember(events) { Planner.odds(events) }
+    fun redraw(map: MapView) = drawOverlays(ctx, map, repo, garages, spot, marks, odds) { lat, lon -> pending = lat to lon }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -161,6 +163,7 @@ fun MapScreen(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Legend(Color(0xFF22C55E), "אחוזות החוף"); Legend(Color(0xFF3B82F6), "קרוב לבית"); Legend(Color(0xFF8B5CF6), "חניון נוסף")
                 Legend(Color(0xFFF59E0B), "פריקה וטעינה"); Legend(Color(0xFF6B7280), "אוטותל"); Legend(Color(0xFFEF4444), "הרכב שלי")
+                if (odds.isNotEmpty()) { Legend(Color(0xFF22C55E), "קל למצוא (${BUCKET_LABELS[bucketOf(System.currentTimeMillis())]})"); Legend(Color(0xFFF59E0B), "בינוני"); Legend(Color(0xFFEF4444), "קשה") }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${marks.size} סימונים", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
@@ -224,7 +227,7 @@ fun CurbSwatch(t: CurbType) {
 
 private fun drawOverlays(
     ctx: Context, map: MapView, repo: ParkingRepository, garages: List<Garage>, spot: Spot?, marks: List<CurbMark>,
-    onLongPress: (Double, Double) -> Unit,
+    odds: Map<String, StreetOdds>, onLongPress: (Double, Double) -> Unit,
 ) {
     map.overlays.clear()
     map.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
@@ -241,6 +244,18 @@ private fun drawOverlays(
             outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(28f, 14f), 0f)
             setOnClickListener { _, _, _ -> false }
         })
+    }
+
+    // Parking odds per street (from the user's history), wide translucent strokes under everything else
+    if (odds.isNotEmpty()) repo.streets.forEach { st ->
+        val o = odds[st.name] ?: return@forEach
+        val color = when (o.level) { 2 -> AColor.argb(110, 34, 197, 94); 1 -> AColor.argb(110, 245, 158, 11); else -> AColor.argb(110, 239, 68, 68) }
+        st.paths.forEach { p ->
+            map.overlays.add(Polyline(map).apply {
+                setPoints(p.map { GeoPoint(it[1], it[0]) }); outlinePaint.color = color; outlinePaint.strokeWidth = 22f
+                title = "${st.name}: ${o.parkings} חניות, חיפוש ממוצע ${o.avgSearchMinutes.toInt()} ד׳" + if (o.sameTimeOfDay) "" else " (כל שעות היום)"
+            })
+        }
     }
 
     // Curb marks as painted strokes

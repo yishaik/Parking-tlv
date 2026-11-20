@@ -41,6 +41,20 @@
         <receiver android:name=".ReminderReceiver" android:exported="false" />
         <receiver android:name=".ClassifyActionReceiver" android:exported="false" />
 
+        <receiver android:name=".ParkingWidgetReceiver" android:exported="true" android:label="חניה בת״א">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/parking_widget" />
+        </receiver>
+
+        <service android:name=".ParkTileService" android:exported="true" android:label="חניתי כאן"
+            android:icon="@drawable/ic_launcher" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <service android:name=".car.ParkingCarAppService" android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />

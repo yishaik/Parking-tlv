@@ -46,6 +46,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.car.app:app:1.4.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 }

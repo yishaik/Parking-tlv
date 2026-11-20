@@ -30,6 +30,10 @@ class Rules(
     /** yyyy-MM-dd -> "erev" | "yomtov" */
     val holidays: Map<String, String>,
 ) {
+    /** Same rules with the "free blue-white parking" switch set (from a user-confirmed announcement). */
+    fun withOverride(on: Boolean): Rules = if (on == freeOverride) this
+        else Rules(hasPermit, permitZone, on, outsideFreeMinutes, discount, boundaryMeters, groups, holidays)
+
     data class Eval(val freeMinutes: Int, val paidMinutes: Int, val cost: Double?, val paidFrom: LocalDateTime?, val appRequired: Boolean)
 
     fun groupFor(zone: Int?) = zone?.let { z -> groups.firstOrNull { z in it.zones } }
