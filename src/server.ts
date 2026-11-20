@@ -77,7 +77,8 @@ server.registerTool(
           address: a.ktovet,
           distanceMeters: Math.round(d),
           status: a.status_chenyon,
-          statusUpdated: a.tr_status_chenyon,
+          // The city stores Israel wall-clock time as if it were UTC.
+          statusUpdatedIsraelLocal: typeof a.tr_status_chenyon === "number" ? new Date(a.tr_status_chenyon).toISOString().slice(0, 19) : null,
           dayTariff: a.taarif_yom,
           nightTariff: a.taarif_layla,
           tariffNotes: a.hearot_taarif,
