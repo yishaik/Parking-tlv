@@ -1,8 +1,8 @@
-name: probe-curbs
+name: probe-sources
 on:
   push:
     branches: [main]
-    paths: ["scripts/probe-curbs.mjs", ".github/workflows/probe-curbs.yml"]
+    paths: ["scripts/probe-sources.mjs", ".github/workflows/probe-sources.yml"]
 permissions:
   contents: write
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: node scripts/probe-curbs.mjs
+      - run: node scripts/probe-sources.mjs
       - run: |
           git config user.name "parking-probe"; git config user.email "parking-probe@users.noreply.github.com"
-          git add data/probe/curbs && git commit -m "chore: curb data probe" && git pull --rebase -q && git push
+          git add data/probe && git commit -m "chore: sources probe" && git pull --rebase -q && git push
