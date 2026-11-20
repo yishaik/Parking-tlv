@@ -63,7 +63,7 @@ export function parseGarages(features: { attributes: Attrs }[]): Garage[] {
       status: String(a.status_chenyon ?? "").trim(), dayTariff: String(a.taarif_yom ?? "").trim(),
       nightTariff: String(a.taarif_layla ?? "").trim(), notes: String(a.hearot_taarif ?? "").trim(),
     }))
-    .filter((g) => Number.isFinite(g.lat) && Number.isFinite(g.lon));
+    .filter((g) => Number.isFinite(g.lat) && Number.isFinite(g.lon) && !/נסגר/.test(g.dayTariff + g.notes));
 }
 
 export const snapshotGarages = () => parseGarages((garagesJson as any).features);

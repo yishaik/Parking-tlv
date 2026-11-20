@@ -139,7 +139,7 @@ class ParkingRepository(private val context: Context) {
         val a = features.getJSONObject(i).getJSONObject("attributes")
         val lat = a.optDouble("lat")
         val lon = a.optDouble("lon")
-        if (lat.isNaN() || lon.isNaN()) null
+        if (lat.isNaN() || lon.isNaN() || "נסגר" in a.str("taarif_yom") + a.str("hearot_taarif")) null
         else Garage(a.str("shem_chenyon"), a.str("ktovet"), lat, lon, a.str("status_chenyon"), a.str("taarif_yom"), a.str("taarif_layla"), a.str("hearot_taarif"))
     }
 }
