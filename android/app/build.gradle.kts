@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = runNumber
-        versionName = "0.1.$runNumber"
+        versionName = (System.getenv("VERSION_NAME") ?: "0.0.$runNumber").removePrefix("v")
     }
     signingConfigs {
         // Fixed key committed to the repo so every CI build installs over the previous one.
