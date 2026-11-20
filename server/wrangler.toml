@@ -1,0 +1,11 @@
+name = "parking-tlv"
+main = "src/index.ts"
+compatibility_date = "2024-11-12"
+
+[[durable_objects.bindings]]
+name = "STORE"
+class_name = "Store"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Store"]
