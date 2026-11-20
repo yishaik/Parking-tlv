@@ -73,7 +73,6 @@ class LastSpotStore(ctx: Context) {
 object Launch {
     private const val PANGO = "com.unicell.pangoandroid"
     const val PERMIT_URL = "https://www.tel-aviv.gov.il/Residents/Transportation/Pages/LocalTav.aspx"
-    const val DIGITEL_URL = "https://www.tel-aviv.gov.il/Residents/Digitel/Pages/Digitel.aspx"
 
     fun navigate(ctx: Context, lat: Double, lon: Double, walking: Boolean = false) {
         val nav = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$lat,$lon&mode=${if (walking) "w" else "d"}"))

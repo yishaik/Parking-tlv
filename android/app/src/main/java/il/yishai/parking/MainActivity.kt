@@ -247,7 +247,6 @@ fun ParkingScreen() {
                 Text("קיצורי דרך", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 ShortcutRow("פנגו", "הפעלת תשלום חניה בכחול-לבן") { Launch.pango(ctx) }
                 ShortcutRow("תו חניה אזורי", "בקשה, חידוש ובדיקת זכאות (אתר העירייה)") { Launch.web(ctx, Launch.PERMIT_URL) }
-                ShortcutRow("דיגיתל שלי", "חשבון ארנונה, תו קיים ודוחות חניה") { Launch.web(ctx, Launch.DIGITEL_URL) }
             }
         }
         item { Text(" ") }
