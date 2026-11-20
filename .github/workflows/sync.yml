@@ -1,0 +1,21 @@
+name: sync-gis
+on:
+  schedule:
+    - cron: "17 3 * * *" # nightly; the city reloads layers around 02:30 local
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm run sync
+      - run: |
+          git config user.name "parking-sync"
+          git config user.email "parking-sync@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "chore: sync GIS snapshot" && git push

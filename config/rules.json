@@ -1,0 +1,9 @@
+{
+  "_note": "Values marked unverified must be confirmed against tel-aviv.gov.il before the cost output is trusted.",
+  "profile": { "hasPermit": true, "permitZone": 9 },
+  "freeParkingOverride": false,
+  "outsideZoneFreeMinutesPerDay": 120,
+  "residentDiscountOutsideZone": 0.3,
+  "paidWindow": { "from": "08:00", "to": "24:00", "verified": false },
+  "visitorHourlyILS": null
+}
