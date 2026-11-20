@@ -13,3 +13,6 @@ jobs:
           curl -sf "$BASE/" | tee /dev/stderr | grep -q '"mcp"'
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/mcp" -d '{}')
           echo "unauthenticated /mcp -> $code"; test "$code" = 401
+          # v0.5+: secret-path webhook answers 404 for a wrong secret (older builds answered 401)
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/telegram/$(printf '0%.0s' {1..40})" -d '{}')
+          echo "telegram with wrong secret -> $code"; test "$code" = 404
