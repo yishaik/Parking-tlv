@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -46,6 +47,11 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.BrightnessAuto
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -66,6 +72,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,10 +106,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         classifyRequest.value = intent?.getStringExtra(Notifications.EXTRA_CLASSIFY)
+        val prefs = getSharedPreferences("ui", MODE_PRIVATE)
         setContent {
-            val dark = isSystemInDarkTheme()
+            // "system" | "dark" | "light"
+            var themeMode by remember { mutableStateOf(prefs.getString("theme", "system") ?: "system") }
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (themeMode) { "dark" -> true; "light" -> false; else -> systemDark }
+            DisposableEffect(dark) {
+                val style = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose {}
+            }
             MaterialTheme(colorScheme = if (dark) darkColorScheme(background = Color(0xFF0F1115), surface = Color(0xFF0F1115)) else lightColorScheme(background = Color(0xFFF3F4F6), surface = Color(0xFFF3F4F6))) {
-                ParkingScreen(dark, classifyRequest.value) { classifyRequest.value = null }
+                ParkingScreen(dark, themeMode, onThemeToggle = {
+                    themeMode = when (themeMode) { "system" -> "dark"; "dark" -> "light"; else -> "system" }
+                    prefs.edit().putString("theme", themeMode).apply()
+                }, classifyFromNotification = classifyRequest.value) { classifyRequest.value = null }
             }
         }
     }
@@ -137,7 +156,7 @@ data class UiState(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClassify: () -> Unit) {
+fun ParkingScreen(dark: Boolean, themeMode: String, onThemeToggle: () -> Unit, classifyFromNotification: String?, consumeClassify: () -> Unit) {
     val ctx = LocalContext.current.applicationContext
     val repo = remember { ParkingRepository(ctx) }
     val store = remember { LastSpotStore(ctx) }
@@ -152,6 +171,9 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     var expanded by remember { mutableStateOf<String?>(null) }
     var pangoEnd by remember { mutableStateOf(PangoSession.endTime(ctx)) }
     var showMap by remember { mutableStateOf(false) }
+    var heroExpanded by remember { mutableStateOf(false) }
+    val curbStore = remember { CurbStore(ctx) }
+    var curbMarks by remember { mutableStateOf(curbStore.all()) }
     val assignedPrefs = remember { ctx.getSharedPreferences("assigned", android.content.Context.MODE_PRIVATE) }
     var assigned by remember { mutableStateOf(assignedPrefs.getStringSet("lots", emptySet())!!.toSet()) }
     var askPango by remember { mutableStateOf(false) }
@@ -250,7 +272,7 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
 
     if (showMap) {
         val c = repo.places.getOrNull(focus ?: HERE)?.let { it.lat to it.lon } ?: state.myLat?.let { it to state.myLon!! }
-        MapScreen(repo, state.garages, spot, c, onBack = { showMap = false }, onCurbsChanged = { scope.launch { Sync.push(ctx) } })
+        MapScreen(repo, state.garages, spot, c, onBack = { showMap = false; curbMarks = curbStore.all() }, onCurbsChanged = { curbMarks = curbStore.all(); scope.launch { Sync.push(ctx) } })
         return
     }
 
@@ -261,7 +283,18 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     val pZone = if (place != null) repo.zoneAt(place.lat, place.lon) else state.myZone
     val onBoundary = pLat != null && pLon != null && repo.onPermitBoundary(pLat, pLon)
     val summary = if (pLat == null) null else repo.rules.summary(pZone, LocalDateTime.now(), onBoundary)
-    val loadingSigns = if (pLat != null && pLon != null) repo.loadingSignsNear(pLat, pLon) else emptyList()
+    val loadingSigns = if (pLat != null && pLon != null) repo.loadingSignsNear(pLat, pLon, 40.0) else emptyList()
+    val explanation = if (pLat == null) null else repo.rules.explain(pZone, LocalDateTime.now(), onBoundary)
+    val spotStreet = if (pLat != null && pLon != null) remember(pLat, pLon) { repo.streetNear(pLat, pLon, 40.0) } else null
+    val curbHere = if (pLat != null && pLon != null) curbMarks.filter { Geo.distance(it.lat, it.lon, pLat, pLon) < 15 }.maxByOrNull { it.time } else null
+    val autotelHere = if (pLat != null && pLon != null) repo.autotel.any { Geo.distance(it.lat, it.lon, pLat, pLon) < 25 } else false
+    val localNotes = buildList {
+        curbHere?.let { add("סימנת כאן: ${CurbType.of(it.type)?.label ?: it.type}") }
+        loadingSigns.firstOrNull()?.let { (d, sign) -> add("תמרור פריקה וטעינה ב-$d מ׳: ${sign.text}") }
+        if (autotelHere) add("יש כאן חניות שמורות לאוטותל, אסור לחנות בהן")
+    }
+    val heroActionable = (explanation?.actionable ?: false) || localNotes.isNotEmpty() ||
+        curbHere?.type in setOf(CurbType.RED_WHITE.key, CurbType.LOADING.key, CurbType.DRIVEWAY.key, CurbType.BUS_TAXI.key, CurbType.DISABLED.key)
     val otherLots = if (pLat == null || pLon == null) emptyList() else
         repo.otherLots.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.filter { it.distance < 700 }.sortedBy { it.distance }.take(5)
     val now = LocalDateTime.now()
@@ -298,6 +331,12 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                         Text(LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE · HH:mm", Locale("he"))), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("חניה בת״א", fontSize = 26.sp, fontWeight = FontWeight.Bold)
                     }
+                    CircleIcon(
+                        when (themeMode) { "dark" -> Icons.Outlined.DarkMode; "light" -> Icons.Outlined.LightMode; else -> Icons.Outlined.BrightnessAuto },
+                        when (themeMode) { "dark" -> "מצב כהה"; "light" -> "מצב בהיר"; else -> "לפי המערכת" },
+                        cardColor, MaterialTheme.colorScheme.onSurface,
+                    ) { onThemeToggle() }
+                    Spacer(Modifier.width(8.dp))
                     CircleIcon(Icons.Outlined.Map, "מפה", cardColor, MaterialTheme.colorScheme.onSurface) { showMap = true }
                     Spacer(Modifier.width(8.dp))
                     CircleIcon(Icons.Outlined.History, "היסטוריה", cardColor, MaterialTheme.colorScheme.onSurface) { events = history.all(); showHistory = true }
@@ -316,32 +355,41 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
             }
 
             item {
-                val t = tone(summary?.freeNow, dark)
+                val ex = explanation
+                val t = tone(ex?.freeNow, dark)
+                val locationLine = listOfNotNull(spotStreet ?: place?.label, summary?.zone?.let { "אזור $it" }).joinToString(" · ").ifBlank { null }
+                val expanded = heroActionable || heroExpanded
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(t.container).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(t.container)
+                        .clickable(enabled = !heroActionable) { heroExpanded = !heroExpanded }
+                        .animateContentSize().padding(if (expanded) 18.dp else 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(
-                            Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)).background(t.strong),
+                            Modifier.size(if (expanded) 64.dp else 44.dp).clip(RoundedCornerShape(if (expanded) 16.dp else 12.dp)).background(t.strong),
                             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                         ) {
-                            Text("אזור", fontSize = 12.sp, color = t.onStrong)
-                            Text(summary?.zone?.toString() ?: "–", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = t.onStrong, lineHeight = 34.sp)
+                            if (expanded) Text("אזור", fontSize = 11.sp, color = t.onStrong)
+                            Text(summary?.zone?.toString() ?: "–", fontSize = if (expanded) 28.sp else 20.sp, fontWeight = FontWeight.Bold, color = t.onStrong, lineHeight = 30.sp)
                         }
-                        Spacer(Modifier.width(14.dp))
-                        Column {
-                            Text(if (state.loading && summary == null) "מאתר מיקום…" else summary?.title ?: "אין מיקום", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = t.text)
-                            if (!summary?.subtitle.isNullOrBlank()) Text(summary!!.subtitle, fontSize = 14.sp, color = t.text)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                when { state.loading && ex == null -> "מאתר מיקום…"; ex == null -> "אין מיקום"; else -> ex.headline },
+                                fontSize = if (expanded) 20.sp else 17.sp, fontWeight = FontWeight.Bold, color = t.text,
+                            )
+                            Text(listOfNotNull(locationLine, ex?.tag).joinToString(" · "), fontSize = 13.sp, color = t.text, maxLines = 1)
                         }
-                    }
-                    if (!summary?.detail.isNullOrBlank()) Text(summary!!.detail, fontSize = 13.sp, color = t.text)
-                    summary?.warnings?.forEach { w -> Text("• $w", fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold) }
-                    loadingSigns.firstOrNull()?.let { (d, sign) ->
-                        Text(
-                            "• תמרור פריקה וטעינה ב-$d מ׳" + (if (loadingSigns.size > 1) " (ועוד ${loadingSigns.size - 1})" else "") + ": ${sign.text}",
-                            fontSize = 13.sp, color = t.text, maxLines = 3,
+                        if (!heroActionable) Icon(
+                            if (heroExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            if (heroExpanded) "פחות" else "פרטים", tint = t.text,
                         )
+                    }
+                    if (expanded && ex != null) {
+                        ex.lines.forEach { Text("• $it", fontSize = 14.sp, color = t.text) }
+                        ex.nowLine?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 14.sp, color = t.text, fontWeight = FontWeight.SemiBold) }
+                        localNotes.forEach { Text("⚠ $it", fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold, maxLines = 3) }
                     }
                 }
             }

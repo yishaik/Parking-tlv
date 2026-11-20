@@ -125,6 +125,66 @@ class Rules(
         )
     }
 
+    /** Plain-language explanation of the rule at one spot. actionable = something to do or know beyond "free for you". */
+    data class Explanation(val headline: String, val tag: String, val lines: List<String>, val nowLine: String?, val freeNow: Boolean?, val actionable: Boolean)
+
+    private fun hhmm(t: LocalTime) = String.format(Locale.US, "%02d:%02d", t.hour, t.minute)
+    private fun win(w: Pair<LocalTime, LocalTime>?) = w?.let { "${hhmm(it.first)}–${hhmm(it.second)}" } ?: "חינם"
+
+    private fun whenText(t: LocalDateTime, now: LocalDateTime): String {
+        val days = java.time.temporal.ChronoUnit.DAYS.between(now.toLocalDate(), t.toLocalDate())
+        val dayName = t.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale("he"))
+        return when (days) { 0L -> "היום ב-${hhmm(t.toLocalTime())}"; 1L -> "מחר ב-${hhmm(t.toLocalTime())}"; else -> "$dayName ב-${hhmm(t.toLocalTime())}" }
+    }
+
+    private fun nextPaidStart(g: ZoneGroup, now: LocalDateTime): LocalDateTime? {
+        var t = now.withSecond(0).withNano(0)
+        repeat(4 * 24 * 4) { if (isPaid(g, t)) return t; t = t.plusMinutes(15) }
+        return null
+    }
+
+    private fun paidEndToday(g: ZoneGroup, now: LocalDateTime): LocalTime? = window(g, now.toLocalDate())?.second
+
+    fun explain(zone: Int?, now: LocalDateTime, onPermitBoundary: Boolean = false): Explanation {
+        val holiday = when (holiday(now.toLocalDate())) { "erev" -> "היום ערב חג: שעות כמו בשישי"; "yomtov" -> "היום חג: אין תשלום ברחוב (כמו שבת), בדוק תמרור"; else -> null }
+        if (freeOverride) return Explanation("חינם לכולם עכשיו", "הכרזת עירייה", listOf("העירייה הכריזה על חניה חינם בכחול-לבן"), null, true, true)
+        if (hasPermit && zone != null && zone == permitZone) return Explanation(
+            "חינם לך כאן", "האזור שלך",
+            listOf("כחול-לבן באזור $zone, האזור של התו שלך", "חינם כל היממה וכל השבוע, בלי להפעיל אפליקציה", "גם בקטעי 'חניה מועדפת' של אזור $zone מותר לך"),
+            null, true, false,
+        )
+        if (hasPermit && onPermitBoundary) return Explanation(
+            "חינם לך, רק עם פנגו", "רחוב גובל",
+            listOfNotNull("רחוב גובל בין אזור $permitZone לאזור ${zone ?: "סמוך"}", "בעלי תו של שני האזורים חונים כאן חינם", "חובה להפעיל פנגו או סלופארק מהדקה הראשונה, אחרת זה דוח", holiday),
+            null, true, true,
+        )
+        if (zone == null) return Explanation("לא ידוע", "מחוץ לת״א", listOf("זה מחוץ לאזורי החניה של תל אביב", "החוק כאן לפי התמרור במקום"), null, null, false)
+        val g = groupFor(zone) ?: return Explanation("לא ידוע", "אזור $zone", listOf("אין לי נתוני תעריף לאזור $zone, פעל לפי התמרור"), null, null, true)
+        val rate = g.visitorHourly?.let { String.format(Locale.US, "₪%.2f", it * (if (hasPermit) 1 - discount else 1.0)) }
+        val schedule = "שעות תשלום: א׳–ה׳ ${win(g.sunThu)} · ו׳ וערבי חג ${win(g.fri)} · שבת וחג חינם"
+        val forYou = if (hasPermit) "לך: שעתיים ראשונות ביום חינם (מצטבר), רק בהפעלת פנגו, ואחר כך ${rate ?: "בתשלום"} לשעה" else "תעריף: ${rate ?: "לא ידוע"} לשעה"
+        val preferred = "בקטע עם תמרור 'חניה מועדפת' מותר רק לבעלי תו של אזור $zone, בדוק את התמרור"
+        val paidNow = isPaid(g, now)
+        return if (paidNow) {
+            val e = evaluate(zone, now, 180)
+            val end = paidEndToday(g, now)?.let { "התשלום נגמר היום ב-${hhmm(it)}" }
+            Explanation(
+                if (hasPermit) "שעתיים חינם, רק עם פנגו" else "בתשלום עכשיו", "אזור $zone · לא שלך",
+                listOfNotNull(forYou, schedule, preferred, holiday),
+                listOfNotNull(e.cost?.let { String.format(Locale.US, "חניה של 3 שעות מעכשיו: ₪%.2f", it) + if (hasPermit) " (אם לא ניצלת היום את השעתיים)" else "" }, end).joinToString(" · "),
+                false, true,
+            )
+        } else {
+            val next = nextPaidStart(g, now)
+            Explanation(
+                "חינם עכשיו", "אזור $zone · לא שלך",
+                listOfNotNull(schedule, forYou, preferred, holiday),
+                next?.let { "אין תשלום עד ${whenText(it, now)}. מאז: ${if (hasPermit) "שעתיים חינם עם פנגו, ואז " else ""}${rate ?: "בתשלום"} לשעה" },
+                true, true,
+            )
+        }
+    }
+
     companion object {
         private fun window(o: JSONObject, key: String): Pair<LocalTime, LocalTime>? {
             val a = o.optJSONArray(key) ?: return null
