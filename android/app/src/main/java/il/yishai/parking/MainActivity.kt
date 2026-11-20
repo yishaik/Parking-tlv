@@ -149,6 +149,8 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     var setupOpen by remember { mutableStateOf(false) }
     var pickCar by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf<String?>(null) }
+    var pangoEnd by remember { mutableStateOf(PangoSession.endTime(ctx)) }
+    var askPango by remember { mutableStateOf(false) }
     val history = remember { HistoryStore(ctx) }
     var events by remember { mutableStateOf(history.all()) }
     var classifying by remember { mutableStateOf<ParkingEvent?>(null) }
@@ -209,6 +211,22 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
         confirmButton = { TextButton(onClick = { setupOpen = false }) { Text("סגור") } },
     )
 
+    if (askPango) AlertDialog(
+        onDismissRequest = { askPango = false },
+        title = { Text("לכמה זמן הפעלת בפנגו?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("אזכיר לך 10 דקות לפני הסוף, כדי לחדש.", fontSize = 13.sp)
+                listOf(30 to "חצי שעה", 60 to "שעה", 120 to "שעתיים", 180 to "3 שעות", 240 to "4 שעות").forEach { (m, label) ->
+                    Text(label, Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                        PangoSession.start(ctx, m); pangoEnd = PangoSession.endTime(ctx); askPango = false
+                    }.padding(vertical = 12.dp, horizontal = 8.dp), fontSize = 16.sp)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { askPango = false }) { Text("לא הפעלתי") } },
+    )
+
     classifying?.let { ev ->
         ClassifySheet(ev, onSave = { t, sTime ->
             history.update(ev.id) { it.copy(type = t?.key, search = sTime?.key, synced = false) }
@@ -243,7 +261,7 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
             Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(16.dp, 8.dp, 16.dp, 12.dp)) {
                 Row(
                     Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(18.dp))
-                        .background(MaterialTheme.colorScheme.onBackground).clickable { Launch.pango(ctx) },
+                        .background(MaterialTheme.colorScheme.onBackground).clickable { askPango = true; Launch.pango(ctx) },
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Outlined.LocalParking, null, tint = MaterialTheme.colorScheme.background)
@@ -300,6 +318,24 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                         }
                     }
                     if (!summary?.detail.isNullOrBlank()) Text(summary!!.detail, fontSize = 13.sp, color = t.text)
+                }
+            }
+
+            pangoEnd?.let { end ->
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xFF3B82F6).copy(alpha = 0.15f)).padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.LocalParking, null, tint = Color(0xFF3B82F6))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("חניה בפנגו פעילה עד ${java.text.SimpleDateFormat("HH:mm", Locale("he")).format(java.util.Date(end))}", fontWeight = FontWeight.SemiBold)
+                            Text("תזכורת 10 דקות לפני הסוף", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { askPango = true; Launch.pango(ctx) }) { Text("הארך") }
+                        TextButton(onClick = { PangoSession.stop(ctx); pangoEnd = null }) { Text("סיימתי") }
+                    }
                 }
             }
 
