@@ -1,3 +1,4 @@
+process.env.TZ ??= "Asia/Jerusalem"; // rules use local wall-clock time
 import { readFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
