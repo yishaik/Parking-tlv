@@ -14,6 +14,7 @@ import java.util.UUID
 /** Parking types the user marks after parking, each shown as a picture of the sign/curb. */
 enum class SpotType(val key: String, val label: String) {
     BLUE_WHITE("blue_white", "כחול-לבן"),
+    PERMIT_ONLY("permit_only", "לבעלי תו אזורי"),
     UNMARKED("unmarked", "ללא סימון (חינם)"),
     GARAGE("garage", "חניון"),
     CLOSE_TO_HOME("close_to_home", "חניון קרוב לבית"),

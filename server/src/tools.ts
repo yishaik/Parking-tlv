@@ -19,7 +19,7 @@ export interface Event {
 }
 
 export const TYPE_LABELS: Record<string, string> = {
-  blue_white: "כחול-לבן", unmarked: "ללא סימון (חינם)", garage: "חניון", close_to_home: "חניון קרוב לבית",
+  blue_white: "כחול-לבן", permit_only: "לבעלי תו אזורי", unmarked: "ללא סימון (חינם)", garage: "חניון", close_to_home: "חניון קרוב לבית",
   short_term: "קצרת מועד", private: "חניה פרטית", other: "אחר",
 };
 const SEARCH_MIN: Record<string, number> = { "0": 0, "5": 3, "15": 10, "30": 20 };

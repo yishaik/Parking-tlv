@@ -97,6 +97,7 @@ fun SignImage(type: SpotType, size: Dp = 64.dp) {
             SpotType.GARAGE -> pSign(h * 0.08f, h * 0.84f)
             SpotType.CLOSE_TO_HOME -> { pSign(h * 0.02f, h * 0.62f); plate("לתושבים") }
             SpotType.SHORT_TERM -> { pSign(h * 0.02f, h * 0.62f); plate("60 דק׳") }
+            SpotType.PERMIT_ONLY -> { pSign(h * 0.02f, h * 0.62f); plate("תו אזורי") }
             SpotType.PRIVATE -> {
                 drawRoundRect(Color.White, Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.7f), CornerRadius(w * 0.06f))
                 drawRoundRect(Color(0xFFD32F2F), Offset(w * 0.1f, h * 0.15f), Size(w * 0.8f, h * 0.7f), CornerRadius(w * 0.06f), style = Stroke(w * 0.05f))
