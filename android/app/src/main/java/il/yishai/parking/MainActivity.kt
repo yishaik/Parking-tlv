@@ -15,6 +15,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -191,7 +193,7 @@ fun ParkingScreen(dark: Boolean) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp, 8.dp, 16.dp, 12.dp)) {
+            Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(16.dp, 8.dp, 16.dp, 12.dp)) {
                 Row(
                     Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(18.dp))
                         .background(MaterialTheme.colorScheme.onBackground).clickable { Launch.pango(ctx) },
@@ -220,7 +222,7 @@ fun ParkingScreen(dark: Boolean) {
             }
 
             item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Pill("כאן", Icons.Outlined.MyLocation, f == HERE, cardColor) { focus = HERE }
                     repo.places.forEachIndexed { i, p ->
                         Pill(p.label, if (i == 0) Icons.Outlined.Home else Icons.Outlined.Work, f == i, cardColor) { focus = i }
