@@ -18,7 +18,7 @@ for (const p of places) {
   const where = strFields.map((f) => `${f} LIKE '%${p.street}%'`).join(" OR ");
   const params = new URLSearchParams({ where, outFields: "*", outSR: "4326", returnGeometry: "true", resultRecordCount: "2000", f: "json" });
   const body = (await (await fetch(`${GIS_BASE}/527/query?${params}`)).json()) as { features?: { attributes: Record<string, unknown>; geometry?: { x: number; y: number } }[] };
-  const hits = (body.features ?? []).filter((f) => Object.values(f.attributes).some((v) => String(v).trim() === p.number));
+  const hits = (body.features ?? []).filter((f) => String(f.attributes.ms_bayit).trim() === p.number && String(f.attributes.t_rechov).includes(p.street));
   result.push({
     ...p,
     candidates: hits.slice(0, 5).map((h) => ({
