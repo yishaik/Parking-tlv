@@ -9,28 +9,48 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LocalParking
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.PinDrop
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,26 +63,49 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                Surface(Modifier.fillMaxSize()) { ParkingScreen() }
+            val dark = isSystemInDarkTheme()
+            MaterialTheme(colorScheme = if (dark) darkColorScheme(background = Color(0xFF0F1115), surface = Color(0xFF0F1115)) else lightColorScheme(background = Color(0xFFF3F4F6), surface = Color(0xFFF3F4F6))) {
+                ParkingScreen(dark)
             }
         }
     }
 }
 
-/** Where the screen is evaluated: "here" (GPS) or one of the saved places (index). */
+/** Semantic colors for the status hero and occupancy dots. */
+private data class Tone(val container: Color, val strong: Color, val onStrong: Color, val text: Color)
+
+private fun tone(free: Boolean?, dark: Boolean): Tone = when (free) {
+    true -> if (dark) Tone(Color(0xFF12321F), Color(0xFF3DD68C), Color(0xFF06210F), Color(0xFFB8F2D2)) else Tone(Color(0xFFDDF5E7), Color(0xFF1E8E53), Color.White, Color(0xFF0E5130))
+    false -> if (dark) Tone(Color(0xFF3A2710), Color(0xFFF5A524), Color(0xFF2B1A04), Color(0xFFFBDDB0)) else Tone(Color(0xFFFDEBD3), Color(0xFFC9730A), Color.White, Color(0xFF6B3D04))
+    null -> if (dark) Tone(Color(0xFF1C1F26), Color(0xFF5B6270), Color.White, Color(0xFFC9CED8)) else Tone(Color(0xFFE6E8EC), Color(0xFF6B7280), Color.White, Color(0xFF374151))
+}
+
+private fun occupancyColor(s: String) = when (s) {
+    "פנוי" -> Color(0xFF22C55E)
+    "מעט" -> Color(0xFFF59E0B)
+    "מלא", "סגור" -> Color(0xFFEF4444)
+    else -> Color(0xFF9CA3AF)
+}
+
 private const val HERE = -1
 
 data class UiState(
@@ -76,17 +119,19 @@ data class UiState(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ParkingScreen() {
+fun ParkingScreen(dark: Boolean) {
     val ctx = LocalContext.current.applicationContext
     val repo = remember { ParkingRepository(ctx) }
     val store = remember { LastSpotStore(ctx) }
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(UiState()) }
-    var focus by remember { mutableStateOf<Int?>(null) } // null = not chosen yet
+    var focus by remember { mutableStateOf<Int?>(null) }
     var spot by remember { mutableStateOf(store.load()) }
     var carName by remember { mutableStateOf(store.carDeviceName) }
     var hasBackground by remember { mutableStateOf(Perms.hasBackground(ctx)) }
+    var setupOpen by remember { mutableStateOf(false) }
     var pickCar by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         scope.launch {
@@ -95,7 +140,6 @@ fun ParkingScreen() {
             val (garages, live) = repo.garages()
             val zone = loc?.let { repo.zoneAt(it.latitude, it.longitude) }
             state = UiState(false, loc?.latitude, loc?.longitude, zone, garages, live)
-            // First load: use GPS if we're inside Tel Aviv zones, otherwise the first saved place (home).
             if (focus == null) focus = if (zone != null || repo.places.isEmpty()) HERE else 0
             spot = store.load()
         }
@@ -114,7 +158,24 @@ fun ParkingScreen() {
         store.carDeviceAddress = addr; store.carDeviceName = name; carName = name; pickCar = false
     }, onDismiss = { pickCar = false })
 
-    // Resolve the point the screen is about.
+    if (setupOpen) AlertDialog(
+        onDismissRequest = { setupOpen = false },
+        title = { Text("שמירת חניה אוטומטית") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("כשה-Bluetooth של הרכב מתנתק, האפליקציה שומרת איפה חנית.")
+                SetupStep(1, "בחר את הרכב", carName ?: "לא נבחר", carName != null) {
+                    if (Perms.hasBtConnect(ctx)) pickCar = true
+                    else if (Build.VERSION.SDK_INT >= 31) btPerm.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                }
+                SetupStep(2, "אשר מיקום 'תמיד'", if (hasBackground) "מאושר" else "נדרש לשמירה ברקע", hasBackground) {
+                    if (Build.VERSION.SDK_INT >= 29) backgroundPerm.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { setupOpen = false }) { Text("סגור") } },
+    )
+
     val f = focus ?: HERE
     val place = repo.places.getOrNull(f)
     val pLat = place?.lat ?: state.myLat
@@ -122,165 +183,230 @@ fun ParkingScreen() {
     val pZone = if (place != null) repo.zoneAt(place.lat, place.lon) else state.myZone
     val summary = if (pLat == null) null else repo.rules.summary(pZone, LocalDateTime.now())
     val garages = if (pLat == null || pLon == null) emptyList() else
-        state.garages.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.sortedBy { it.distance }.take(10)
+        state.garages.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.sortedBy { it.distance }.take(8)
     val nightLots = if (pLat == null || pLon == null) emptyList() else
-        repo.nightLots.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.filter { it.distance < 1200 }.sortedBy { it.distance }.take(5)
-    val farAway = state.myLat != null && state.myZone == null
+        repo.nightLots.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.filter { it.distance < 1200 }.sortedBy { it.distance }.take(4)
+    val autoReady = carName != null && hasBackground
+    val cardColor = if (dark) Color(0xFF191C22) else Color.White
 
-    LazyColumn(
-        Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("חניה בת״א", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                TextButton(onClick = { refresh() }) { Text(if (state.loading) "טוען…" else "רענן") }
-            }
-        }
-
-        // Where to check
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("בדיקה עבור", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = f == HERE, onClick = { focus = HERE }, label = { Text("המיקום שלי") })
-                    repo.places.forEachIndexed { i, p ->
-                        FilterChip(selected = f == i, onClick = { focus = i }, label = { Text(p.label) })
-                    }
-                }
-                if (farAway && f == HERE) {
-                    Text("אתה כרגע מחוץ לתל אביב. בחר כתובת כדי לתכנן מראש.", style = MaterialTheme.typography.bodySmall)
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp, 8.dp, 16.dp, 12.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.onBackground).clickable { Launch.pango(ctx) },
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.LocalParking, null, tint = MaterialTheme.colorScheme.background)
+                    Spacer(Modifier.width(8.dp))
+                    Text("הפעל חניה בפנגו", color = MaterialTheme.colorScheme.background, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 }
             }
-        }
-
-        // Status
-        item {
-            val bg = when (summary?.freeNow) {
-                true -> Color(0xFF1B5E20)
-                false -> Color(0xFF8D4A00)
-                null -> MaterialTheme.colorScheme.surfaceVariant
-            }
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = bg)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val fg = if (summary?.freeNow == null) MaterialTheme.colorScheme.onSurfaceVariant else Color.White
-                    Text(summary?.headline ?: "ממתין למיקום…", color = fg, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    if (!summary?.detail.isNullOrBlank()) Text(summary!!.detail, color = fg)
-                }
-            }
-        }
-
-        // My car
-        item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("הרכב שלי", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    val s = spot
-                    if (s == null) Text("לא שמור מקום חניה")
-                    else {
-                        val dist = if (state.myLat != null) " · " + distanceText(Geo.distance(state.myLat!!, state.myLon!!, s.lat, s.lon)) + " ממך" else ""
-                        Text("חנית ${s.timeText()}$dist")
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (s != null) Button(onClick = { Launch.navigate(ctx, s.lat, s.lon, walking = true) }) { Text("ניווט לרכב") }
-                        OutlinedButton(enabled = state.myLat != null, onClick = {
-                            store.save(state.myLat!!, state.myLon!!, "manual"); spot = store.load()
-                        }) { Text("חניתי כאן") }
-                        if (s != null) OutlinedButton(onClick = { store.clear(); spot = null }) { Text("מחק מיקום") }
-                    }
-                    HorizontalDivider()
-                    val ready = carName != null && hasBackground
-                    Text(
-                        if (ready) "שמירה אוטומטית פעילה: כשהרכב ($carName) מתנתק"
-                        else "שמירה אוטומטית: צריך לבחור את ה-Bluetooth של הרכב" + if (!hasBackground) " ולאשר מיקום 'תמיד'" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (!ready) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            if (Perms.hasBtConnect(ctx)) pickCar = true
-                            else if (Build.VERSION.SDK_INT >= 31) btPerm.launch(Manifest.permission.BLUETOOTH_CONNECT)
-                        }) { Text(if (carName == null) "בחר רכב" else "החלף רכב") }
-                        if (!hasBackground && Build.VERSION.SDK_INT >= 29) {
-                            OutlinedButton(onClick = { backgroundPerm.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }) { Text("אשר מיקום תמיד") }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Garages
-        item {
-            Column(Modifier.padding(top = 8.dp)) {
-                Text("חניוני אחוזות החוף", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    (place?.let { "סביב ${it.label}" } ?: "סביבך") + if (state.live) " · תפוסה בזמן אמת" else " · נתונים שמורים",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        items(garages) { g -> GarageRow(g) { Launch.navigate(ctx, g.lat, g.lon) } }
-
-        if (nightLots.isNotEmpty()) {
+        },
+    ) { inner ->
+        LazyColumn(
+            Modifier.fillMaxSize().statusBarsPadding(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = inner.calculateBottomPadding() + 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             item {
-                Column(Modifier.padding(top = 8.dp)) {
-                    Text("חניוני 'קרוב לבית'", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("חינם בלילות ובסופי שבוע לבעלי תו משויך, הנחה לתושבים", style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE · HH:mm", Locale("he"))), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("חניה בת״א", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    }
+                    CircleIcon(Icons.Outlined.Refresh, "רענן", cardColor, MaterialTheme.colorScheme.onSurface) { refresh() }
                 }
             }
-            items(nightLots) { l ->
-                Card(Modifier.fillMaxWidth().clickable { Launch.navigate(ctx, l.lat, l.lon) }) {
-                    Column(Modifier.padding(12.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(l.name, fontWeight = FontWeight.SemiBold)
-                            Text(distanceText(l.distance))
+
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("כאן", Icons.Outlined.MyLocation, f == HERE, cardColor) { focus = HERE }
+                    repo.places.forEachIndexed { i, p ->
+                        Pill(p.label, if (i == 0) Icons.Outlined.Home else Icons.Outlined.Work, f == i, cardColor) { focus = i }
+                    }
+                }
+            }
+
+            item {
+                val t = tone(summary?.freeNow, dark)
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(t.container).padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(
+                            Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)).background(t.strong),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text("אזור", fontSize = 12.sp, color = t.onStrong)
+                            Text(summary?.zone?.toString() ?: "–", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = t.onStrong, lineHeight = 34.sp)
                         }
-                        if (l.nightTariff.isNotBlank()) Text("לילה: ${l.nightTariff}", style = MaterialTheme.typography.bodySmall)
-                        if (l.notes.isNotBlank()) Text(l.notes, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text(if (state.loading && summary == null) "מאתר מיקום…" else summary?.title ?: "אין מיקום", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = t.text)
+                            if (!summary?.subtitle.isNullOrBlank()) Text(summary!!.subtitle, fontSize = 14.sp, color = t.text)
+                        }
+                    }
+                    if (!summary?.detail.isNullOrBlank()) Text(summary!!.detail, fontSize = 13.sp, color = t.text)
+                }
+            }
+
+            item {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardColor).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    val s = spot
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF3B82F6).copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.DirectionsCar, null, tint = Color(0xFF3B82F6))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("הרכב שלי", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                            val sub = when {
+                                s == null -> "לא שמור מקום חניה"
+                                state.myLat != null -> "חנית ${s.timeText()} · ${distanceText(Geo.distance(state.myLat!!, state.myLon!!, s.lat, s.lon))} ממך"
+                                else -> "חנית ${s.timeText()}"
+                            }
+                            Text(sub, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (s != null) CircleIcon(Icons.AutoMirrored.Outlined.DirectionsWalk, "ניווט רגלי לרכב", MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.surface, size = 52) {
+                            Launch.navigate(ctx, s.lat, s.lon, walking = true)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SoftButton("חניתי כאן", Icons.Outlined.PinDrop, Modifier.weight(1f), dark) {
+                            if (state.myLat != null) { store.save(state.myLat!!, state.myLon!!, "manual"); spot = store.load() }
+                        }
+                        if (s != null) SoftButton("מחק", Icons.Outlined.Delete, Modifier.weight(1f), dark) { store.clear(); spot = null }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { setupOpen = true }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.Bluetooth, null, Modifier.size(18.dp), tint = if (autoReady) Color(0xFF22C55E) else Color(0xFFF59E0B))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (autoReady) "שמירה אוטומטית פעילה · $carName" else "הפעל שמירה אוטומטית כשיוצאים מהרכב",
+                            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+                        )
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            item {
+                SectionHeader("חניונים קרובים", if (state.live) "תפוסה חיה" else "נתונים שמורים", if (state.live) Color(0xFF22C55E) else null)
+            }
+            item {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardColor)) {
+                    if (garages.isEmpty()) Text(if (state.loading) "טוען…" else "אין חניונים להצגה", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    garages.forEachIndexed { i, g ->
+                        if (i > 0) HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        GarageRow(g, expanded == g.name, onToggle = { expanded = if (expanded == g.name) null else g.name }) { Launch.navigate(ctx, g.lat, g.lon) }
+                    }
+                }
+            }
+
+            if (nightLots.isNotEmpty()) {
+                item { SectionHeader("חניוני 'קרוב לבית'", "חינם בלילה ובסופ״ש לתו משויך", null) }
+                item {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardColor)) {
+                        nightLots.forEachIndexed { i, l ->
+                            if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Row(Modifier.fillMaxWidth().clickable { Launch.navigate(ctx, l.lat, l.lon) }.padding(16.dp, 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(l.name, fontWeight = FontWeight.SemiBold)
+                                    if (l.nightTariff.isNotBlank()) Text(l.nightTariff, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                }
+                                Text(distanceText(l.distance), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
             }
         }
-
-        // Shortcuts
-        item {
-            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("קיצורי דרך", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                ShortcutRow("פנגו", "הפעלת תשלום חניה בכחול-לבן") { Launch.pango(ctx) }
-                ShortcutRow("תו חניה אזורי", "בקשה, חידוש ובדיקת זכאות (אתר העירייה)") { Launch.web(ctx, Launch.PERMIT_URL) }
-            }
-        }
-        item { Text(" ") }
     }
 }
 
 @Composable
-private fun ShortcutRow(title: String, subtitle: String, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Column(Modifier.padding(12.dp)) {
+private fun SectionHeader(title: String, note: String, dot: Color?) {
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        if (dot != null) { Box(Modifier.size(8.dp).clip(CircleShape).background(dot)); Spacer(Modifier.width(6.dp)) }
+        Text(note, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun Pill(label: String, icon: ImageVector, selected: Boolean, idle: Color, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.onBackground else idle
+    val fg = if (selected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface
+    Row(
+        Modifier.clip(CircleShape).background(bg).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(16.dp), tint = fg)
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = fg, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun CircleIcon(icon: ImageVector, description: String, bg: Color, fg: Color, size: Int = 42, onClick: () -> Unit) {
+    Box(Modifier.size(size.dp).clip(CircleShape).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, description, tint = fg)
+    }
+}
+
+@Composable
+private fun SoftButton(label: String, icon: ImageVector, modifier: Modifier, dark: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier.height(44.dp).clip(RoundedCornerShape(14.dp)).background(if (dark) Color(0xFF242832) else Color(0xFFF1F2F4)).clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun GarageRow(g: Garage, open: Boolean, onToggle: () -> Unit, onNavigate: () -> Unit) {
+    Column(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onToggle).padding(16.dp, 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(12.dp).clip(CircleShape).background(occupancyColor(g.status)))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(g.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Text(statusLabel(g.status), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(distanceText(g.distance), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (open) {
+            Column(Modifier.padding(start = 24.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (g.dayTariff.isNotBlank()) Text(g.dayTariff, fontSize = 13.sp)
+                if (g.nightTariff.isNotBlank()) Text("לילה: ${g.nightTariff}", fontSize = 13.sp)
+                if (g.notes.isNotBlank()) Text(g.notes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Surface(onClick = onNavigate, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.onSurface) {
+                    Text("נווט לחניון", Modifier.padding(horizontal = 16.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupStep(n: Int, title: String, status: String, done: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(28.dp).clip(CircleShape).background(if (done) Color(0xFF22C55E) else Color(0xFF9CA3AF)), contentAlignment = Alignment.Center) {
+            Text(if (done) "✓" else "$n", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
             Text(title, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-private fun statusColor(s: String) = when (s) {
-    "פנוי" -> Color(0xFF43A047)
-    "מעט" -> Color(0xFFFB8C00)
-    "מלא", "סגור" -> Color(0xFFE53935)
-    else -> Color.Gray
-}
-
-@Composable
-private fun GarageRow(g: Garage, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(g.name, fontWeight = FontWeight.SemiBold)
-                Text(distanceText(g.distance))
-            }
-            Text(statusLabel(g.status), color = statusColor(g.status), fontWeight = FontWeight.Bold)
-            if (g.dayTariff.isNotBlank()) Text(g.dayTariff, style = MaterialTheme.typography.bodySmall, maxLines = 3)
-            if (g.nightTariff.isNotBlank()) Text("לילה: ${g.nightTariff}", style = MaterialTheme.typography.bodySmall, maxLines = 2)
+            Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -301,7 +427,7 @@ private fun CarPicker(ctx: Context, onPick: (String, String) -> Unit, onDismiss:
             Column {
                 if (devices.isEmpty()) Text("אין מכשירים מצומדים")
                 devices.forEach { (addr, name) ->
-                    Text(name, Modifier.fillMaxWidth().clickable { onPick(addr, name) }.padding(vertical = 10.dp))
+                    Text(name, Modifier.fillMaxWidth().clickable { onPick(addr, name) }.padding(vertical = 12.dp))
                 }
             }
         },

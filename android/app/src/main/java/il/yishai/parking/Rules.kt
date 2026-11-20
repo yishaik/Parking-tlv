@@ -64,26 +64,25 @@ class Rules(
         return Eval(free, paid, cost, paidFrom)
     }
 
-    data class Summary(val headline: String, val detail: String, val freeNow: Boolean?)
+    /** zone = null outside Tel Aviv. title is the short answer, subtitle/detail the context. freeNow = null when unknown. */
+    data class Summary(val zone: Int?, val title: String, val subtitle: String, val detail: String, val freeNow: Boolean?)
 
-    /** Hebrew status for a spot: a short headline plus detail lines. freeNow = null when unknown. */
     fun summary(zone: Int?, now: LocalDateTime): Summary {
-        if (freeOverride) return Summary("חניה חינם בכחול-לבן", "הוכרז על ידי העירייה", true)
-        if (zone == null) return Summary("מחוץ לאזורי החניה של ת״א", "", null)
-        if (hasPermit && zone == permitZone) return Summary("אזור $zone · חינם עם התו שלך", "זה האזור שלך: חינם כל היממה, כל השבוע", true)
-        val g = groupFor(zone) ?: return Summary("אזור $zone", "אין נתוני תעריף לאזור הזה", null)
-        val hourly = g.visitorHourly?.let { String.format(Locale.US, "₪%.2f לשעה", it * (if (hasPermit) 1 - discount else 1.0)) }
+        if (freeOverride) return Summary(zone, "חינם עכשיו", "העירייה הכריזה על חניה חינם בכחול-לבן", "", true)
+        if (zone == null) return Summary(null, "מחוץ לתל אביב", "אין כאן אזורי חניה של העירייה", "", null)
+        if (hasPermit && zone == permitZone) return Summary(zone, "חינם עם התו שלך", "כל היממה · כל השבוע", "", true)
+        val g = groupFor(zone) ?: return Summary(zone, "אין נתונים", "אין נתוני תעריף לאזור הזה", "", null)
+        val hourly = g.visitorHourly?.let { String.format(Locale.US, "₪%.2f", it * (if (hasPermit) 1 - discount else 1.0)) }
         val w = g.window(now.toLocalDate())
-        val window = if (w == null) "היום אין תשלום" else "שעות תשלום היום: ${w.first}–${w.second}"
+        val window = if (w == null) "היום אין תשלום" else "תשלום היום ${w.first}–${w.second}"
         val paidNow = g.isPaid(now)
-        val headline = when {
-            !paidNow -> "אזור $zone · חינם עכשיו"
-            hasPermit -> "אזור $zone · שעתיים חינם, אחר כך ${hourly ?: "בתשלום"}"
-            else -> "אזור $zone · ${hourly ?: "בתשלום"}"
+        val title = when {
+            !paidNow -> "חינם עכשיו"
+            hasPermit -> "שעתיים חינם, אחר כך ${hourly ?: "בתשלום"}/ש׳"
+            else -> hourly?.let { "$it לשעה" } ?: "בתשלום"
         }
         val est = evaluate(zone, now, 180).cost?.let { String.format(Locale.US, "₪%.2f", it) } ?: "לא ידוע"
-        val note = if (hasPermit) " (אם לא ניצלת היום את השעתיים)" else ""
-        return Summary(headline, "$window\nחניה של 3 שעות מעכשיו: $est$note", !paidNow)
+        return Summary(zone, title, window, "3 שעות מעכשיו: $est" + if (hasPermit) " (אם לא ניצלת את השעתיים היום)" else "", !paidNow)
     }
 
     companion object {
