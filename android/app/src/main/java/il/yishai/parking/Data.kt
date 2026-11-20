@@ -135,6 +135,20 @@ class ParkingRepository(private val context: Context) {
         }
     }
 
+    /** Distances (m) to loading/unloading signs (layer 449) within [radius] of a point; empty on failure. */
+    suspend fun loadingSignsNear(lat: Double, lon: Double, radius: Int = 80): List<Int> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$GIS_BASE/449/query?geometry=$lon,$lat&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects" +
+                "&distance=$radius&units=esriSRUnit_Meter&outSR=4326&returnGeometry=true&outFields=OBJECTID&f=json"
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 8000 }
+            val features = JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).optJSONArray("features") ?: return@withContext emptyList()
+            (0 until features.length()).mapNotNull { i ->
+                val g = features.getJSONObject(i).optJSONObject("geometry") ?: return@mapNotNull null
+                Geo.distance(lat, lon, g.getDouble("y"), g.getDouble("x")).roundToInt()
+            }.sorted()
+        } catch (e: Exception) { emptyList() }
+    }
+
     private fun parseGarages(features: JSONArray): List<Garage> = (0 until features.length()).mapNotNull { i ->
         val a = features.getJSONObject(i).getJSONObject("attributes")
         val lat = a.optDouble("lat")

@@ -150,6 +150,7 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     var pickCar by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf<String?>(null) }
     var pangoEnd by remember { mutableStateOf(PangoSession.endTime(ctx)) }
+    var loadingSigns by remember { mutableStateOf<List<Int>>(emptyList()) }
     var askPango by remember { mutableStateOf(false) }
     val history = remember { HistoryStore(ctx) }
     var events by remember { mutableStateOf(history.all()) }
@@ -253,6 +254,9 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
         state.garages.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.sortedBy { it.distance }.take(8)
     val nightByName = remember { repo.nightLots.associateBy { it.name.trim() } }
     val autoReady = carName != null && hasBackground
+    LaunchedEffect(pLat, pLon) {
+        loadingSigns = if (pLat != null && pLon != null) repo.loadingSignsNear(pLat, pLon) else emptyList()
+    }
     val cardColor = if (dark) Color(0xFF191C22) else Color.White
 
     Scaffold(
@@ -318,6 +322,12 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                         }
                     }
                     if (!summary?.detail.isNullOrBlank()) Text(summary!!.detail, fontSize = 13.sp, color = t.text)
+                    loadingSigns.firstOrNull()?.let { d ->
+                        Text(
+                            "תמרור פריקה וטעינה ב-$d מ׳" + (if (loadingSigns.size > 1) " (ועוד ${loadingSigns.size - 1})" else "") + ". אל תחנה בתחומו בשעות הפעילות שעל התמרור.",
+                            fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
 
