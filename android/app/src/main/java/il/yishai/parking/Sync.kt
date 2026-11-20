@@ -54,6 +54,13 @@ object Sync {
             val (code, _) = call("$base/api/events", "POST", token, body)
             if (code == 200) pending.forEach { e -> store.update(e.id) { it.copy(synced = true) } }
         } catch (_: Exception) {}
+        // Assigned close-to-home lots (profile), only when changed
+        val assigned = ctx.getSharedPreferences("assigned", Context.MODE_PRIVATE).getStringSet("lots", emptySet())!!.sorted()
+        val sig = assigned.joinToString("|")
+        if (prefs(ctx).getString("profileSig", null) != sig) try {
+            val (code, _) = call("$base/api/profile", "POST", token, JSONObject().put("assignedLots", JSONArray(assigned)).toString())
+            if (code == 200) prefs(ctx).edit().putString("profileSig", sig).apply()
+        } catch (_: Exception) {}
         // Curb marks and their deletions
         val curbs = CurbStore(ctx)
         val newCurbs = curbs.all().filter { !it.synced }

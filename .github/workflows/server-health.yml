@@ -1,0 +1,15 @@
+name: server-health
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/functions/**", ".github/workflows/server-health.yml"]
+  workflow_dispatch:
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          BASE=https://vybivdkskrkafcuedvbg.supabase.co/functions/v1/parking
+          curl -sf "$BASE/" | tee /dev/stderr | grep -q '"mcp"'
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/mcp" -d '{}')
+          echo "unauthenticated /mcp -> $code"; test "$code" = 401

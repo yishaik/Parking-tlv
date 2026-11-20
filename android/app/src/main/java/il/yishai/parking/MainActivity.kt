@@ -434,6 +434,7 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                             onToggleAssigned = if (night == null) null else ({
                                 assigned = if (mine) assigned - g.name.trim() else assigned + g.name.trim()
                                 assignedPrefs.edit().putStringSet("lots", assigned).apply()
+                                scope.launch { Sync.push(ctx) }
                             }),
                             isAssigned = mine,
                             onToggle = { expanded = if (expanded == g.name) null else g.name },
