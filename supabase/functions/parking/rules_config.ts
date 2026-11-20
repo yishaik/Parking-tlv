@@ -1,0 +1,60 @@
+// Generated from config/rules.json — keep in sync.
+export default {
+ "_sources": [
+  "Paid hours by zone group: tel-aviv.gov.il, 'הסדרי החניה החדשים של תל אביב-יפו 2025' (PDF)",
+  "Center visitor rate derived from the reported resident-outside-zone rate 8.68 ILS = 70% of visitor (ice.co.il, Feb 2025) -> 12.40",
+  "Holiday eves (paid until 17:00 like Friday) are not modelled yet"
+ ],
+ "profile": {
+  "hasPermit": true,
+  "permitZone": 9
+ },
+ "freeParkingOverride": false,
+ "outsideZoneFreeMinutesPerDay": 120,
+ "residentDiscountOutsideZone": 0.3,
+ "zoneGroups": [
+  {
+   "name": "center",
+   "zones": [
+    6,
+    7,
+    9,
+    10
+   ],
+   "visitorHourlyILS": 12.4,
+   "paid": {
+    "sunThu": [
+     "08:00",
+     "21:00"
+    ],
+    "fri": [
+     "08:00",
+     "17:00"
+    ],
+    "sat": null
+   }
+  },
+  {
+   "name": "outer",
+   "zones": [
+    1,
+    2,
+    4,
+    12,
+    13
+   ],
+   "visitorHourlyILS": null,
+   "paid": {
+    "sunThu": [
+     "08:00",
+     "19:00"
+    ],
+    "fri": [
+     "08:00",
+     "17:00"
+    ],
+    "sat": null
+   }
+  }
+ ]
+} as const;
