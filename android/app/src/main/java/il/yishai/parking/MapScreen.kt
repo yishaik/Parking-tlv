@@ -30,6 +30,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -140,31 +141,35 @@ fun MapScreen(
 
         // Header
         Row(Modifier.statusBarsPadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "חזרה")
+            Surface(onClick = onBack, shape = CircleShape, color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface, shadowElevation = 4.dp) {
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "חזרה") }
             }
             Spacer(Modifier.width(8.dp))
-            Column(Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface).padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text("מפת חניה · אזור ${repo.rules.permitZone ?: ""}", fontWeight = FontWeight.Bold)
-                Text("לחיצה ארוכה על שפת מדרכה כדי לסמן אותה", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface, shadowElevation = 4.dp) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text("מפת חניה · אזור ${repo.rules.permitZone ?: ""}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("לחיצה ארוכה על מדרכה = סימון", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
 
         // Legend + mark-here
-        Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface, shadowElevation = 4.dp,
+        ) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Legend(Color(0xFF22C55E), "אחוזות החוף"); Legend(Color(0xFF3B82F6), "קרוב לבית"); Legend(Color(0xFF8B5CF6), "חניון נוסף")
-                Legend(Color(0xFFF59E0B), "פריקה וטעינה"); Legend(Color(0xFF6B7280), "אוטותל (אסור)"); Legend(Color(0xFFEF4444), "הרכב שלי")
+                Legend(Color(0xFFF59E0B), "פריקה וטעינה"); Legend(Color(0xFF6B7280), "אוטותל"); Legend(Color(0xFFEF4444), "הרכב שלי")
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("סימנת ${marks.size} קטעי מדרכה", Modifier.weight(1f), fontSize = 13.sp)
+                Text("${marks.size} סימונים", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
                 TextButton(onClick = {
                     val c = mapRef?.mapCenter ?: return@TextButton
                     pending = c.latitude to c.longitude
-                }) { Icon(Icons.Outlined.MyLocation, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("סמן במרכז המפה") }
+                }) { Icon(Icons.Outlined.MyLocation, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("סמן במרכז המפה", maxLines = 1) }
             }
-        }
+        } }
         Box(Modifier.align(Alignment.Center).size(10.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)))
     }
 
@@ -231,8 +236,9 @@ private fun drawOverlays(
     repo.permitZoneRings.forEach { ring ->
         map.overlays.add(Polygon(map).apply {
             points = ring.map { GeoPoint(it[1], it[0]) }
-            fillPaint.color = AColor.argb(18, 30, 90, 168)
-            outlinePaint.color = AColor.argb(200, 30, 90, 168); outlinePaint.strokeWidth = 5f
+            fillPaint.color = AColor.argb(28, 37, 99, 235)
+            outlinePaint.color = AColor.argb(230, 37, 99, 235); outlinePaint.strokeWidth = 9f
+            outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(28f, 14f), 0f)
             setOnClickListener { _, _, _ -> false }
         })
     }
