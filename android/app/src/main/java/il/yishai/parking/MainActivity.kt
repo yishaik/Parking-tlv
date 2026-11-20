@@ -46,6 +46,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.LocalParking
@@ -150,7 +151,9 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     var pickCar by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf<String?>(null) }
     var pangoEnd by remember { mutableStateOf(PangoSession.endTime(ctx)) }
-    var loadingSigns by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var showMap by remember { mutableStateOf(false) }
+    val assignedPrefs = remember { ctx.getSharedPreferences("assigned", android.content.Context.MODE_PRIVATE) }
+    var assigned by remember { mutableStateOf(assignedPrefs.getStringSet("lots", emptySet())!!.toSet()) }
     var askPango by remember { mutableStateOf(false) }
     val history = remember { HistoryStore(ctx) }
     var events by remember { mutableStateOf(history.all()) }
@@ -162,7 +165,7 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     LaunchedEffect(classifyFromNotification) {
         classifyFromNotification?.let { id -> history.get(id)?.let { classifying = it }; consumeClassify() }
     }
-    BackHandler(enabled = showHistory) { showHistory = false }
+    BackHandler(enabled = showHistory || showMap) { showHistory = false; showMap = false }
 
     fun refresh() {
         scope.launch {
@@ -231,6 +234,7 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
     classifying?.let { ev ->
         ClassifySheet(ev, onSave = { t, sTime ->
             history.update(ev.id) { it.copy(type = t?.key, search = sTime?.key, synced = false) }
+            CurbType.fromSpot(t)?.let { c -> CurbStore(ctx).add(ev.lat, ev.lon, c, ev.street ?: repo.streetNear(ev.lat, ev.lon), "parking") }
             events = history.all(); classifying = null
             scope.launch { Sync.push(ctx) }
         }, onDismiss = { classifying = null })
@@ -244,19 +248,27 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
         return
     }
 
+    if (showMap) {
+        val c = repo.places.getOrNull(focus ?: HERE)?.let { it.lat to it.lon } ?: state.myLat?.let { it to state.myLon!! }
+        MapScreen(repo, state.garages, spot, c, onBack = { showMap = false }, onCurbsChanged = { scope.launch { Sync.push(ctx) } })
+        return
+    }
+
     val f = focus ?: HERE
     val place = repo.places.getOrNull(f)
     val pLat = place?.lat ?: state.myLat
     val pLon = place?.lon ?: state.myLon
     val pZone = if (place != null) repo.zoneAt(place.lat, place.lon) else state.myZone
-    val summary = if (pLat == null) null else repo.rules.summary(pZone, LocalDateTime.now())
+    val onBoundary = pLat != null && pLon != null && repo.onPermitBoundary(pLat, pLon)
+    val summary = if (pLat == null) null else repo.rules.summary(pZone, LocalDateTime.now(), onBoundary)
+    val loadingSigns = if (pLat != null && pLon != null) repo.loadingSignsNear(pLat, pLon) else emptyList()
+    val otherLots = if (pLat == null || pLon == null) emptyList() else
+        repo.otherLots.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.filter { it.distance < 700 }.sortedBy { it.distance }.take(5)
+    val now = LocalDateTime.now()
     val garages = if (pLat == null || pLon == null) emptyList() else
         state.garages.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.sortedBy { it.distance }.take(8)
     val nightByName = remember { repo.nightLots.associateBy { it.name.trim() } }
     val autoReady = carName != null && hasBackground
-    LaunchedEffect(pLat, pLon) {
-        loadingSigns = if (pLat != null && pLon != null) repo.loadingSignsNear(pLat, pLon) else emptyList()
-    }
     val cardColor = if (dark) Color(0xFF191C22) else Color.White
 
     Scaffold(
@@ -286,6 +298,8 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                         Text(LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE · HH:mm", Locale("he"))), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("חניה בת״א", fontSize = 26.sp, fontWeight = FontWeight.Bold)
                     }
+                    CircleIcon(Icons.Outlined.Map, "מפה", cardColor, MaterialTheme.colorScheme.onSurface) { showMap = true }
+                    Spacer(Modifier.width(8.dp))
                     CircleIcon(Icons.Outlined.History, "היסטוריה", cardColor, MaterialTheme.colorScheme.onSurface) { events = history.all(); showHistory = true }
                     Spacer(Modifier.width(8.dp))
                     CircleIcon(Icons.Outlined.Refresh, "רענן", cardColor, MaterialTheme.colorScheme.onSurface) { refresh() }
@@ -322,10 +336,11 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                         }
                     }
                     if (!summary?.detail.isNullOrBlank()) Text(summary!!.detail, fontSize = 13.sp, color = t.text)
-                    loadingSigns.firstOrNull()?.let { d ->
+                    summary?.warnings?.forEach { w -> Text("• $w", fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold) }
+                    loadingSigns.firstOrNull()?.let { (d, sign) ->
                         Text(
-                            "תמרור פריקה וטעינה ב-$d מ׳" + (if (loadingSigns.size > 1) " (ועוד ${loadingSigns.size - 1})" else "") + ". אל תחנה בתחומו בשעות הפעילות שעל התמרור.",
-                            fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold,
+                            "• תמרור פריקה וטעינה ב-$d מ׳" + (if (loadingSigns.size > 1) " (ועוד ${loadingSigns.size - 1})" else "") + ": ${sign.text}",
+                            fontSize = 13.sp, color = t.text, maxLines = 3,
                         )
                     }
                 }
@@ -411,7 +426,37 @@ fun ParkingScreen(dark: Boolean, classifyFromNotification: String?, consumeClass
                     if (garages.isEmpty()) Text(if (state.loading) "טוען…" else "אין חניונים להצגה", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     garages.forEachIndexed { i, g ->
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        GarageRow(g, nightByName[g.name.trim()], expanded == g.name, onToggle = { expanded = if (expanded == g.name) null else g.name }) { Launch.navigate(ctx, g.lat, g.lon) }
+                        val night = nightByName[g.name.trim()]
+                        val mine = night != null && g.name.trim() in assigned
+                        GarageRow(
+                            g, night, expanded == g.name,
+                            assignedNote = when { !mine -> null; repo.rules.closeToHomeFree(now) -> "משויך לך · חינם עכשיו"; else -> "משויך לך · חינם מ-${repo.rules.closeToHomeFreeFrom(now)}" },
+                            onToggleAssigned = if (night == null) null else ({
+                                assigned = if (mine) assigned - g.name.trim() else assigned + g.name.trim()
+                                assignedPrefs.edit().putStringSet("lots", assigned).apply()
+                            }),
+                            isAssigned = mine,
+                            onToggle = { expanded = if (expanded == g.name) null else g.name },
+                        ) { Launch.navigate(ctx, g.lat, g.lon) }
+                    }
+                }
+            }
+
+            if (otherLots.isNotEmpty()) {
+                item { SectionHeader("חניונים נוספים", "עירייה ו-OpenStreetMap", null) }
+                item {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardColor)) {
+                        otherLots.forEachIndexed { i, l ->
+                            if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Row(Modifier.fillMaxWidth().clickable { Launch.navigate(ctx, l.lat, l.lon) }.padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(l.name, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text(listOfNotNull(l.kind, l.spots?.let { "$it מקומות" }, when (l.free) { true -> "חינם"; false -> "בתשלום"; null -> null }).joinToString(" · "),
+                                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(distanceText(l.distance), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -493,7 +538,10 @@ private fun SoftButton(label: String, icon: ImageVector, modifier: Modifier, dar
 }
 
 @Composable
-private fun GarageRow(g: Garage, night: NightLot?, open: Boolean, onToggle: () -> Unit, onNavigate: () -> Unit) {
+private fun GarageRow(
+    g: Garage, night: NightLot?, open: Boolean, assignedNote: String?, onToggleAssigned: (() -> Unit)?, isAssigned: Boolean,
+    onToggle: () -> Unit, onNavigate: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onToggle).padding(16.dp, 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(12.dp).clip(CircleShape).background(occupancyColor(g.status)))
@@ -502,7 +550,7 @@ private fun GarageRow(g: Garage, night: NightLot?, open: Boolean, onToggle: () -
                 Text(g.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(statusLabel(g.status), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val tags = buildList {
-                    if (night != null) add("קרוב לבית")
+                    if (assignedNote != null) add(assignedNote) else if (night != null) add("קרוב לבית")
                     Regex("(\\d{2})%").find(night?.notes.orEmpty() + " " + g.notes)?.let { add("${it.groupValues[1]}% לתושב") }
                 }
                 if (tags.isNotEmpty()) Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { tags.forEach { Tag(it) } }
@@ -514,7 +562,10 @@ private fun GarageRow(g: Garage, night: NightLot?, open: Boolean, onToggle: () -
             Column(Modifier.padding(start = 24.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (g.dayTariff.isNotBlank()) Text(g.dayTariff, fontSize = 13.sp)
                 if (g.nightTariff.isNotBlank()) Text("לילה: ${g.nightTariff}", fontSize = 13.sp)
-                if (night != null) Text("חניון 'קרוב לבית': חינם בלילות ובסופי שבוע לבעלי תו משויך", fontSize = 13.sp)
+                if (night != null) Text("חניון 'קרוב לבית': חינם לבעלי תו משויך בא׳–ה׳ 19:00–08:00, ובשישי וערבי חג מ-15:00 עד ראשון 08:00 / צאת החג", fontSize = 13.sp)
+                if (onToggleAssigned != null) TextButton(onClick = onToggleAssigned) {
+                    Text(if (isAssigned) "הסר: החניון לא משויך אליי" else "החניון הזה משויך אליי (לפי דיגיתל / 3013*)")
+                }
                 if (g.notes.isNotBlank()) Text(g.notes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Surface(onClick = onNavigate, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.onSurface) {
                     Text("נווט לחניון", Modifier.padding(horizontal = 16.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.SemiBold)

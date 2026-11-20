@@ -91,13 +91,13 @@ object Parking {
         LastSpotStore(app).save(lat, lon, source)
         val repo = ParkingRepository(app)
         val zone = repo.zoneAt(lat, lon)
-        val e = ParkingEvent(UUID.randomUUID().toString(), lat, lon, System.currentTimeMillis(), source, zone, null, null, null)
+        val e = ParkingEvent(UUID.randomUUID().toString(), lat, lon, System.currentTimeMillis(), source, zone, repo.streetNear(lat, lon), null, null)
         val history = HistoryStore(app)
         history.add(e)
         Reminders.schedule(app, repo.rules, zone)
         if (source != "manual") Notifications.askType(app, e.id)
         CoroutineScope(Dispatchers.IO).launch {
-            streetAt(app, lat, lon)?.let { s -> history.update(e.id) { it.copy(street = s) } }
+            if (e.street == null) streetAt(app, lat, lon)?.let { s -> history.update(e.id) { it.copy(street = s) } }
             Sync.push(app)
         }
         return e

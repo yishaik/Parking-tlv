@@ -49,11 +49,21 @@ object Sync {
         val token = token(ctx) ?: return@withContext
         val store = HistoryStore(ctx)
         val pending = store.all().filter { !it.synced }
-        if (pending.isEmpty()) return@withContext
-        try {
+        if (pending.isNotEmpty()) try {
             val body = JSONObject().put("events", JSONArray().apply { pending.forEach { put(it.toJson()) } }).toString()
             val (code, _) = call("$base/api/events", "POST", token, body)
             if (code == 200) pending.forEach { e -> store.update(e.id) { it.copy(synced = true) } }
+        } catch (_: Exception) {}
+        // Curb marks and their deletions
+        val curbs = CurbStore(ctx)
+        val newCurbs = curbs.all().filter { !it.synced }
+        val deleted = curbs.tombstones()
+        if (newCurbs.isNotEmpty() || deleted.isNotEmpty()) try {
+            val body = JSONObject()
+                .put("curbs", JSONArray().apply { newCurbs.forEach { put(it.toJson()) } })
+                .put("deleted", JSONArray(deleted.toList())).toString()
+            val (code, _) = call("$base/api/curbs", "POST", token, body)
+            if (code == 200) { curbs.markSynced(newCurbs.map { it.id }.toSet()); curbs.clearTombstones(deleted) }
         } catch (_: Exception) {}
     }
 
@@ -75,7 +85,8 @@ object Sync {
         2. העדף בסדר הזה: חניה חינם (האזור שלי, שעות בלי תשלום), כחול-לבן בתוך שעתיים החינם, חניון עם הנחת תושב, ואחר כך כל השאר.
         3. השתמש ב-parking_stats כדי להמליץ על רחובות שבהם מצאתי חניה מהר בעבר.
         4. תן לי מקום אחד מומלץ ועוד שתי חלופות, עם מחיר, מרחק הליכה ליעד וקישור ניווט של Google Maps.
-        כלים נוספים: where_is_my_car, parking_history, garages_near, zone_at, street_parking_cost.
+        5. השתמש ב-curb_map_near כדי לראות אילו קטעי מדרכה סימנתי (כחול-לבן, אפור, אדום-לבן, מועדפת) ליד היעד.
+        כלים נוספים: where_is_my_car, parking_history, garages_near, other_lots_near, loading_signs_near, zone_at, street_parking_cost.
         אל תמציא תעריפים: אם השרת מחזיר עלות לא ידועה, תגיד את זה.
     """.trimIndent()
 }

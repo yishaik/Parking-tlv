@@ -7,7 +7,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.util.Locale
 
-/** Kotlin port of src/rules.ts. Reads the same config/rules.json. */
+/** Kotlin port of src/rules.ts. Reads config/rules.json and config/holidays.json. */
 class ZoneGroup(
     val name: String,
     val zones: Set<Int>,
@@ -15,19 +15,9 @@ class ZoneGroup(
     val sunThu: Pair<LocalTime, LocalTime>?,
     val fri: Pair<LocalTime, LocalTime>?,
     val sat: Pair<LocalTime, LocalTime>?,
-) {
-    fun window(date: LocalDate) = when (date.dayOfWeek) {
-        DayOfWeek.SATURDAY -> sat
-        DayOfWeek.FRIDAY -> fri
-        else -> sunThu
-    }
+)
 
-    fun isPaid(t: LocalDateTime): Boolean {
-        val w = window(t.toLocalDate()) ?: return false
-        val m = t.toLocalTime()
-        return !m.isBefore(w.first) && m.isBefore(w.second)
-    }
-}
+enum class DayKind { SUN_THU, FRI, SAT }
 
 class Rules(
     val hasPermit: Boolean,
@@ -35,54 +25,104 @@ class Rules(
     val freeOverride: Boolean,
     val outsideFreeMinutes: Int,
     val discount: Double,
+    val boundaryMeters: Double,
     val groups: List<ZoneGroup>,
+    /** yyyy-MM-dd -> "erev" | "yomtov" */
+    val holidays: Map<String, String>,
 ) {
-    data class Eval(val freeMinutes: Int, val paidMinutes: Int, val cost: Double?, val paidFrom: LocalDateTime?)
+    data class Eval(val freeMinutes: Int, val paidMinutes: Int, val cost: Double?, val paidFrom: LocalDateTime?, val appRequired: Boolean)
 
     fun groupFor(zone: Int?) = zone?.let { z -> groups.firstOrNull { z in it.zones } }
 
-    fun evaluate(zone: Int?, start: LocalDateTime, minutes: Int, usedToday: Int = 0): Eval {
-        if (freeOverride || (hasPermit && zone != null && zone == permitZone)) return Eval(minutes, 0, 0.0, null)
-        val g = groupFor(zone) ?: return Eval(0, 0, null, null)
+    fun holiday(date: LocalDate): String? = holidays[date.toString()]
+
+    fun dayKind(date: LocalDate): DayKind {
+        val h = holiday(date)
+        return when {
+            date.dayOfWeek == DayOfWeek.SATURDAY || h == "yomtov" -> DayKind.SAT
+            date.dayOfWeek == DayOfWeek.FRIDAY || h == "erev" -> DayKind.FRI
+            else -> DayKind.SUN_THU
+        }
+    }
+
+    fun window(g: ZoneGroup, date: LocalDate) = when (dayKind(date)) { DayKind.SAT -> g.sat; DayKind.FRI -> g.fri; DayKind.SUN_THU -> g.sunThu }
+
+    fun isPaid(g: ZoneGroup, t: LocalDateTime): Boolean {
+        val w = window(g, t.toLocalDate()) ?: return false
+        val m = t.toLocalTime()
+        return !m.isBefore(w.first) && m.isBefore(w.second)
+    }
+
+    /** Close-to-home lots: free for assigned permit holders Sun–Thu 19:00–08:00, Fri/eve from 15:00, Saturday and yom tov. */
+    fun closeToHomeFree(t: LocalDateTime): Boolean {
+        val k = dayKind(t.toLocalDate())
+        val h = t.hour
+        if (k == DayKind.SAT || h < 8) return true
+        return if (k == DayKind.FRI) h >= 15 else h >= 19
+    }
+
+    /** Next time today a close-to-home lot becomes free (null if free now). */
+    fun closeToHomeFreeFrom(t: LocalDateTime): LocalTime? {
+        if (closeToHomeFree(t)) return null
+        return if (dayKind(t.toLocalDate()) == DayKind.FRI) LocalTime.of(15, 0) else LocalTime.of(19, 0)
+    }
+
+    fun evaluate(zone: Int?, start: LocalDateTime, minutes: Int, usedToday: Int = 0, onPermitBoundary: Boolean = false): Eval {
+        if (freeOverride || (hasPermit && zone != null && zone == permitZone)) return Eval(minutes, 0, 0.0, null, false)
+        if (hasPermit && onPermitBoundary) return Eval(minutes, 0, 0.0, null, true)
+        val g = groupFor(zone) ?: return Eval(0, 0, null, null, false)
         var allowance = if (hasPermit) maxOf(0, outsideFreeMinutes - usedToday) else 0
         var free = 0
         var paid = 0
+        var touched = false
         var paidFrom: LocalDateTime? = null
         for (i in 0 until minutes) {
             val t = start.plusMinutes(i.toLong())
-            when {
-                !g.isPaid(t) -> free++
-                allowance > 0 -> { allowance--; free++ }
-                else -> { paid++; if (paidFrom == null) paidFrom = t }
-            }
+            if (!isPaid(g, t)) { free++; continue }
+            touched = true
+            if (allowance > 0) { allowance--; free++ } else { paid++; if (paidFrom == null) paidFrom = t }
         }
         val cost = when {
             paid == 0 -> 0.0
             g.visitorHourly != null -> Math.round(paid / 60.0 * g.visitorHourly * (if (hasPermit) 1 - discount else 1.0) * 100) / 100.0
             else -> null
         }
-        return Eval(free, paid, cost, paidFrom)
+        return Eval(free, paid, cost, paidFrom, touched)
     }
 
     /** zone = null outside Tel Aviv. title is the short answer, subtitle/detail the context. freeNow = null when unknown. */
-    data class Summary(val zone: Int?, val title: String, val subtitle: String, val detail: String, val freeNow: Boolean?)
+    data class Summary(val zone: Int?, val title: String, val subtitle: String, val detail: String, val freeNow: Boolean?, val warnings: List<String>)
 
-    fun summary(zone: Int?, now: LocalDateTime): Summary {
-        if (freeOverride) return Summary(zone, "חינם עכשיו", "העירייה הכריזה על חניה חינם בכחול-לבן", "", true)
-        if (zone == null) return Summary(null, "מחוץ לתל אביב", "אין כאן אזורי חניה של העירייה", "", null)
-        if (hasPermit && zone == permitZone) return Summary(zone, "חינם עם התו שלך", "כל היממה · כל השבוע", "", true)
-        val g = groupFor(zone) ?: return Summary(zone, "אין נתונים", "אין נתוני תעריף לאזור הזה", "", null)
+    fun summary(zone: Int?, now: LocalDateTime, onPermitBoundary: Boolean = false): Summary {
+        val holidayNote = when (holiday(now.toLocalDate())) { "erev" -> "ערב חג: שעות כמו בשישי"; "yomtov" -> "חג: ללא תשלום ברחוב (כמו שבת)"; else -> null }
+        if (freeOverride) return Summary(zone, "חינם עכשיו", "העירייה הכריזה על חניה חינם בכחול-לבן", "", true, emptyList())
+        if (zone == null && !onPermitBoundary) return Summary(null, "מחוץ לתל אביב", "אין כאן אזורי חניה של העירייה", "", null, emptyList())
+        if (hasPermit && zone == permitZone) return Summary(zone, "חינם עם התו שלך", "כל היממה · כל השבוע · בלי אפליקציה", "", true, emptyList())
+        if (hasPermit && onPermitBoundary) return Summary(
+            zone, "רחוב גובל: חינם לך", "גבול אזור $permitZone · חינם לבעלי תו של שני האזורים", "",
+            true, listOf("חובה להפעיל פנגו או סלופארק מהדקה הראשונה, גם כשזה חינם"),
+        )
+        val g = groupFor(zone) ?: return Summary(zone, "אין נתונים", "אין נתוני תעריף לאזור הזה", "", null, emptyList())
         val hourly = g.visitorHourly?.let { String.format(Locale.US, "₪%.2f", it * (if (hasPermit) 1 - discount else 1.0)) }
-        val w = g.window(now.toLocalDate())
-        val window = if (w == null) "היום אין תשלום" else "תשלום היום ${w.first}–${w.second}"
-        val paidNow = g.isPaid(now)
+        val w = window(g, now.toLocalDate())
+        val window = if (w == null) "היום אין תשלום ברחוב" else "תשלום היום ${w.first}–${w.second}"
+        val paidNow = isPaid(g, now)
         val title = when {
             !paidNow -> "חינם עכשיו"
             hasPermit -> "שעתיים חינם, אחר כך ${hourly ?: "בתשלום"}/ש׳"
             else -> hourly?.let { "$it לשעה" } ?: "בתשלום"
         }
-        val est = evaluate(zone, now, 180).cost?.let { String.format(Locale.US, "₪%.2f", it) } ?: "לא ידוע"
-        return Summary(zone, title, window, "3 שעות מעכשיו: $est" + if (hasPermit) " (אם לא ניצלת את השעתיים היום)" else "", !paidNow)
+        val e = evaluate(zone, now, 180)
+        val est = e.cost?.let { String.format(Locale.US, "₪%.2f", it) } ?: "לא ידוע"
+        val warnings = buildList {
+            if (e.appRequired) add("שעתיים החינם נספרות רק אם מפעילים פנגו או סלופארק")
+            if (e.appRequired) add("בקטעי 'חניה מועדפת' רק לבעלי תו של אותו אזור, בדוק את התמרור")
+        }
+        return Summary(
+            zone, title, listOfNotNull(window, holidayNote).joinToString(" · "),
+            "3 שעות מעכשיו: $est" + if (hasPermit) " (אם לא ניצלת את השעתיים היום)" else "",
+            !paidNow, warnings,
+        )
     }
 
     companion object {
@@ -93,15 +133,18 @@ class Rules(
 
         private fun fixMidnight(s: String) = if (s == "24:00") "23:59" else s
 
-        fun parse(o: JSONObject): Rules {
+        fun parse(o: JSONObject, holidaysJson: JSONObject?): Rules {
             val profile = o.getJSONObject("profile")
             val groups = o.getJSONArray("zoneGroups")
+            val hol = mutableMapOf<String, String>()
+            holidaysJson?.optJSONObject("days")?.let { d -> d.keys().forEach { hol[it] = d.getString(it) } }
             return Rules(
                 hasPermit = profile.getBoolean("hasPermit"),
                 permitZone = if (profile.isNull("permitZone")) null else profile.getInt("permitZone"),
                 freeOverride = o.optBoolean("freeParkingOverride", false),
                 outsideFreeMinutes = o.getInt("outsideZoneFreeMinutesPerDay"),
                 discount = o.getDouble("residentDiscountOutsideZone"),
+                boundaryMeters = o.optDouble("boundaryMeters", 25.0),
                 groups = (0 until groups.length()).map { i ->
                     val g = groups.getJSONObject(i)
                     val zones = g.getJSONArray("zones")
@@ -113,6 +156,7 @@ class Rules(
                         window(paid, "sunThu"), window(paid, "fri"), window(paid, "sat"),
                     )
                 },
+                holidays = hol,
             )
         }
     }
