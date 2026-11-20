@@ -71,3 +71,41 @@ describe("function tools", () => {
     expect(s.fastestStreets[0].street).toBe("נורדאו");
   });
 });
+
+import { handleUpdate } from "../supabase/functions/parking/telegram.ts";
+import { vi } from "vitest";
+
+describe("telegram bot", () => {
+  const settings: Record<string, unknown> = { telegramToken: "123:abc", telegramChat: null };
+  const sent: string[] = [];
+  const deps = {
+    setting: async <T,>(k: string, f: T) => (settings[k] ?? f) as T,
+    setSetting: async (k: string, v: unknown) => { settings[k] = v; },
+    events: async () => [{ id: "e1", lat: NORDAU.lat, lon: NORDAU.lon, time: Date.now(), source: "manual", zone: 9, street: "נורדאו", type: "blue_white", search: "5" }] as Event[],
+    curbs: async () => [],
+    geocode: async (a: string) => (a.includes("נורדאו") ? { lat: NORDAU.lat, lon: NORDAU.lon, label: "נורדאו 86" } : null),
+    liveGarages: async () => ({ garages: garages(), live: true }),
+    notices: async () => [],
+  };
+  beforeAll(() => {
+    vi.stubGlobal("fetch", async (_u: string, init?: { body?: string }) => { if (init?.body) sent.push(JSON.parse(init.body).text); return new Response("{}"); });
+  });
+
+  it("binds to the first /start chat and ignores others", async () => {
+    await handleUpdate({ message: { chat: { id: 42 }, text: "/start" } }, deps);
+    expect(settings.telegramChat).toBe(42);
+    const n = sent.length;
+    await handleUpdate({ message: { chat: { id: 99 }, text: "/car" } }, deps);
+    expect(sent.length).toBe(n);
+  });
+
+  it("answers where the car is and parking near an address with a time", async () => {
+    await handleUpdate({ message: { chat: { id: 42 }, text: "/car" } }, deps);
+    expect(sent.at(-1)).toContain("נורדאו");
+    await handleUpdate({ message: { chat: { id: 42 }, text: "איפה לחנות ליד נורדאו 86 ב-20:00" } }, deps);
+    expect(sent.at(-1)).toContain("20:00");
+    expect(sent.at(-1)).toContain("האזור שלך");
+    await handleUpdate({ message: { chat: { id: 42 }, text: "רחוב שלא קיים 5" } }, deps);
+    expect(sent.at(-1)).toContain("לא מצאתי");
+  });
+});

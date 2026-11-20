@@ -74,6 +74,18 @@ object Sync {
         } catch (_: Exception) {}
     }
 
+    /** Connects the user's own Telegram bot (token from @BotFather). Returns (ok, message). */
+    suspend fun setupTelegram(ctx: Context, botToken: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val base = baseUrl(ctx) ?: return@withContext false to "השרת לא מוגדר"
+        val token = token(ctx) ?: return@withContext false to "אין חיבור לשרת"
+        try {
+            val (code, text) = call("$base/api/telegram/setup", "POST", token, JSONObject().put("token", botToken.trim()).toString())
+            val o = try { JSONObject(text) } catch (_: Exception) { JSONObject() }
+            if (code == 200) true to "מחובר לבוט @${o.optString("bot")}. שלח לו עכשיו /start בטלגרם."
+            else false to o.optString("error", "החיבור נכשל ($code)")
+        } catch (e: Exception) { false to "החיבור נכשל: ${e.message}" }
+    }
+
     suspend fun delete(ctx: Context, id: String) = withContext(Dispatchers.IO) {
         val base = baseUrl(ctx) ?: return@withContext
         val token = token(ctx) ?: return@withContext

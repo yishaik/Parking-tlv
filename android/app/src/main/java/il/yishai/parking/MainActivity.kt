@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DirectionsCar
@@ -188,6 +189,7 @@ fun ParkingScreen(
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var overrideUntil by remember { mutableStateOf(FreeOverride.until(ctx)) }
     var watchTick by remember { mutableStateOf(0) }
+    var telegramOpen by remember { mutableStateOf(false) }
     val curbStore = remember { CurbStore(ctx) }
     var curbMarks by remember { mutableStateOf(curbStore.all()) }
     val assignedPrefs = remember { ctx.getSharedPreferences("assigned", android.content.Context.MODE_PRIVATE) }
@@ -247,6 +249,32 @@ fun ParkingScreen(
     LaunchedEffect(Unit) {
         if (Perms.hasLocation(ctx)) refresh()
         else locationPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+
+    if (telegramOpen) {
+        var botToken by remember { mutableStateOf("") }
+        var result by remember { mutableStateOf<String?>(null) }
+        var busy by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { telegramOpen = false },
+            title = { Text("חיבור בוט טלגרם") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("1. בטלגרם פתח את @BotFather ושלח /newbot, תן שם, וקבל טוקן.", fontSize = 14.sp)
+                    Text("2. הדבק כאן את הטוקן. הוא נשמר רק בשרת שלך.", fontSize = 14.sp)
+                    androidx.compose.material3.OutlinedTextField(botToken, { botToken = it }, singleLine = true, placeholder = { Text("123456:ABC…") })
+                    Text("3. שלח לבוט /start. מאותו רגע הוא עונה רק לך.", fontSize = 14.sp)
+                    result?.let { Text(it, fontWeight = FontWeight.SemiBold) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy && botToken.isNotBlank(), onClick = {
+                    busy = true
+                    scope.launch { result = Sync.setupTelegram(ctx, botToken).second; busy = false }
+                }) { Text(if (busy) "מחבר…" else "חבר") }
+            },
+            dismissButton = { TextButton(onClick = { telegramOpen = false }) { Text("סגור") } },
+        )
     }
 
     if (pickCar) CarPicker(ctx, onPick = { addr, name ->
@@ -599,6 +627,21 @@ fun ParkingScreen(
                             }
                         }
                     }
+                }
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cardColor).clickable { telegramOpen = true }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, null)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("בוט טלגרם", fontWeight = FontWeight.SemiBold)
+                        Text("איפה הרכב, איפה לחנות ליד כתובת, סיכום שבועי", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
