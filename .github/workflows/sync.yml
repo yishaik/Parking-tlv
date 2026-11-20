@@ -3,6 +3,9 @@ on:
   schedule:
     - cron: "17 3 * * *" # nightly; the city reloads layers around 02:30 local
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["scripts/sync.ts", "src/gis.ts", "scripts/holidays.ts"]
 permissions:
   contents: write
 jobs:
@@ -14,8 +17,9 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npm run sync
+      - run: npx tsx scripts/holidays.ts
       - run: |
           git config user.name "parking-sync"
           git config user.email "parking-sync@users.noreply.github.com"
-          git add data
-          git diff --cached --quiet || git commit -m "chore: sync GIS snapshot" && git push
+          git add data config/holidays.json
+          git diff --cached --quiet || (git commit -m "chore: sync GIS snapshot" && git pull --rebase -q && git push)
