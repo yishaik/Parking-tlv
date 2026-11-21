@@ -21,7 +21,7 @@ jobs:
         with: { gradle-version: "8.10.2" }
       - name: Read version
         run: echo "VERSION_NAME=$(tr -d '[:space:]' < android/VERSION)" >> "$GITHUB_ENV"
-      - run: gradle -p android assembleDebug --stacktrace
+      - run: gradle -p android assembleDebug testDebugUnitTest --stacktrace
       - name: Name APK with version
         id: v
         run: |

@@ -4,7 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+// android/VERSION is the single source of the version: 0.5.0 -> versionName "0.5.0", versionCode 500.
+// The code only grows with the version, so every release installs over the previous one.
+val appVersion = rootProject.file("VERSION").readText().trim().removePrefix("v")
+val appVersionCode = appVersion.split(".").map { it.toIntOrNull() ?: 0 }.let { (it + listOf(0, 0, 0)).take(3) }
+    .let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
 
 android {
     namespace = "il.yishai.parking"
@@ -13,8 +17,9 @@ android {
         applicationId = "il.yishai.parking"
         minSdk = 26
         targetSdk = 35
-        versionCode = runNumber
-        versionName = (System.getenv("VERSION_NAME") ?: "0.0.$runNumber").removePrefix("v")
+        versionCode = appVersionCode
+        versionName = appVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         // Fixed key committed to the repo so every CI build installs over the previous one.
@@ -32,6 +37,15 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    // Unit tests run on the JVM: android.* calls (e.g. Log) return defaults instead of throwing.
+    testOptions { unitTests.isReturnDefaultValues = true }
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = false
+        htmlReport = true
+        // The app is sideloaded for one user; Play-only policy checks do not apply.
+        disable += setOf("ExpiredTargetSdkVersion", "OldTargetApi", "GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
+    }
     // Bundle the synced GIS snapshot and rules config as assets (zones.json, garages.json, nightLots.json, rules.json).
     sourceSets["main"].assets.srcDirs("src/main/assets", "../../data", "../../config")
 }
@@ -51,4 +65,7 @@ dependencies {
     implementation("androidx.glance:glance-material3:1.1.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

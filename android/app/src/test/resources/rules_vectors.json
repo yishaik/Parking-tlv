@@ -1,0 +1,182 @@
+[
+ {
+  "name": "own zone, weekday morning",
+  "zone": 9,
+  "start": "2026-11-22T10:00",
+  "minutes": 120,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 120,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": false
+  }
+ },
+ {
+  "name": "center zone, weekday, past the free two hours",
+  "zone": 6,
+  "start": "2026-11-22T10:00",
+  "minutes": 180,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 120,
+   "paidMinutes": 60,
+   "costILS": 8.68,
+   "paidFrom": "2026-11-22T12:00",
+   "appRequired": true
+  }
+ },
+ {
+  "name": "center zone, evening, paid hour covered by the free allowance",
+  "zone": 6,
+  "start": "2026-11-22T20:00",
+  "minutes": 120,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 120,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": true
+  }
+ },
+ {
+  "name": "center zone, Saturday",
+  "zone": 6,
+  "start": "2026-11-21T10:00",
+  "minutes": 120,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 120,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": false
+  }
+ },
+ {
+  "name": "center zone, Friday afternoon",
+  "zone": 6,
+  "start": "2026-11-20T16:00",
+  "minutes": 180,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 180,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": true
+  }
+ },
+ {
+  "name": "outer zone, allowance mostly used",
+  "zone": 4,
+  "start": "2026-11-23T18:00",
+  "minutes": 120,
+  "used": 100,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 80,
+   "paidMinutes": 40,
+   "costILS": 3.27,
+   "paidFrom": "2026-11-23T18:20",
+   "appRequired": true
+  }
+ },
+ {
+  "name": "boundary street of the permit zone",
+  "zone": 6,
+  "start": "2026-11-22T10:00",
+  "minutes": 120,
+  "boundary": true,
+  "used": 0,
+  "expect": {
+   "freeMinutes": 120,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": true
+  }
+ },
+ {
+  "name": "outside every zone",
+  "zone": null,
+  "start": "2026-11-22T10:00",
+  "minutes": 60,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 0,
+   "paidMinutes": 0,
+   "costILS": null,
+   "paidFrom": null,
+   "appRequired": false
+  }
+ },
+ {
+  "name": "holiday eve after Friday hours",
+  "zone": 6,
+  "start": "2027-04-21T18:00",
+  "minutes": 60,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 60,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": false
+  }
+ },
+ {
+  "name": "yom tov",
+  "zone": 6,
+  "start": "2027-04-22T10:00",
+  "minutes": 120,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 120,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": false
+  }
+ },
+ {
+  "name": "early morning into paid hours",
+  "zone": 6,
+  "start": "2026-11-22T07:30",
+  "minutes": 60,
+  "used": 0,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 60,
+   "paidMinutes": 0,
+   "costILS": 0,
+   "paidFrom": null,
+   "appRequired": true
+  }
+ },
+ {
+  "name": "no permit allowance left",
+  "zone": 7,
+  "start": "2026-11-24T12:00",
+  "minutes": 90,
+  "used": 120,
+  "boundary": false,
+  "expect": {
+   "freeMinutes": 0,
+   "paidMinutes": 90,
+   "costILS": 13.02,
+   "paidFrom": "2026-11-24T12:00",
+   "appRequired": true
+  }
+ }
+]

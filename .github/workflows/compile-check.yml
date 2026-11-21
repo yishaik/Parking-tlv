@@ -1,9 +1,10 @@
 name: compile-check
-# Full debug build to catch code, resource and manifest errors. Publishes nothing.
+# Full debug build, JVM unit tests (incl. the rule vectors shared with the server) and Android lint. Publishes nothing.
 on:
   push:
     branches: [main]
-    paths: ["android/**"]
+    paths: ["android/**", "config/**", "data/**", ".github/workflows/compile-check.yml"]
+  pull_request:
 jobs:
   compile:
     runs-on: ubuntu-latest
@@ -13,4 +14,12 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.10.2" }
-      - run: gradle -p android assembleDebug
+      - run: gradle -p android assembleDebug testDebugUnitTest lintDebug --continue
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+          if-no-files-found: ignore
