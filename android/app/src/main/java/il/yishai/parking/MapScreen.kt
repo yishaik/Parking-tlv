@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,12 +51,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.FolderOverlay
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
@@ -101,6 +106,22 @@ private fun curbSegment(repo: ParkingRepository, lat: Double, lon: Double, halfM
     return listOf(pt(-halfMeters), pt(halfMeters))
 }
 
+/** Point layers on the map. Dense ones only show once zoomed in close enough to read them. */
+enum class MapLayer(val label: String, val color: Long, val minZoom: Double) {
+    GARAGES("אחוזות החוף", 0xFF22C55E, 13.0),
+    NEAR_HOME("קרוב לבית", 0xFF3B82F6, 13.0),
+    OTHER_LOTS("חניון נוסף", 0xFF8B5CF6, 15.5),
+    LOADING("פריקה וטעינה", 0xFFF59E0B, 16.5),
+    AUTOTEL("אוטותל", 0xFF6B7280, 16.5);
+
+    companion object {
+        private fun prefs(ctx: Context) = ctx.getSharedPreferences("map", Context.MODE_PRIVATE)
+        fun load(ctx: Context): Set<MapLayer> =
+            prefs(ctx).getString("layers", null)?.split(",")?.mapNotNull { n -> entries.firstOrNull { it.name == n } }?.toSet() ?: entries.toSet()
+        fun save(ctx: Context, on: Set<MapLayer>) = prefs(ctx).edit().putString("layers", on.joinToString(",") { it.name }).apply()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MapScreen(
@@ -119,7 +140,21 @@ fun MapScreen(
     var mapRef by remember { mutableStateOf<MapView?>(null) }
 
     val odds = remember(events) { Planner.odds(events) }
-    fun redraw(map: MapView) = drawOverlays(ctx, map, repo, garages, spot, marks, odds) { lat, lon -> pending = lat to lon }
+    var layers by remember { mutableStateOf(MapLayer.load(ctx)) }
+    // Layers switched on but hidden because the map is zoomed out; changes only when crossing a threshold.
+    var tooFar by remember { mutableStateOf(emptySet<MapLayer>()) }
+    val folders = remember { mutableMapOf<MapLayer, FolderOverlay>() }
+    fun applyLayers(map: MapView) {
+        val z = map.zoomLevelDouble
+        folders.forEach { (l, f) -> f.isEnabled = l in layers && z >= l.minZoom }
+        val far = layers.filter { z < it.minZoom }.toSet()
+        if (far != tooFar) tooFar = far
+        map.invalidate()
+    }
+    fun redraw(map: MapView) {
+        drawOverlays(ctx, map, repo, garages, spot, marks, odds, folders) { lat, lon -> pending = lat to lon }
+        applyLayers(map)
+    }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -134,11 +169,16 @@ fun MapScreen(
                     val (la, lo) = center ?: (32.0917 to 34.7816)
                     controller.setCenter(GeoPoint(la, lo))
                     mapRef = this
-                    redraw(this)
+                    addMapListener(object : MapListener {
+                        override fun onScroll(event: ScrollEvent?) = false
+                        override fun onZoom(event: ZoomEvent?): Boolean { applyLayers(this@apply); return false }
+                    })
                 }
             },
-            update = { redraw(it) },
         )
+        // Rebuild overlays only when their data changes, not on every recomposition.
+        LaunchedEffect(mapRef, marks, garages, spot, odds) { mapRef?.let { redraw(it) } }
+        LaunchedEffect(layers) { mapRef?.let { applyLayers(it) } }
         DisposableEffect(Unit) { onDispose { mapRef?.onDetach() } }
 
         // Header
@@ -160,10 +200,18 @@ fun MapScreen(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth(),
             shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface, shadowElevation = 4.dp,
         ) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Legend(Color(0xFF22C55E), "אחוזות החוף"); Legend(Color(0xFF3B82F6), "קרוב לבית"); Legend(Color(0xFF8B5CF6), "חניון נוסף")
-                Legend(Color(0xFFF59E0B), "פריקה וטעינה"); Legend(Color(0xFF6B7280), "אוטותל"); Legend(Color(0xFFEF4444), "הרכב שלי")
-                if (odds.isNotEmpty()) { Legend(Color(0xFF22C55E), "קל למצוא (${BUCKET_LABELS[bucketOf(System.currentTimeMillis())]})"); Legend(Color(0xFFF59E0B), "בינוני"); Legend(Color(0xFFEF4444), "קשה") }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                MapLayer.entries.forEach { l ->
+                    LayerChip(Color(l.color), l.label, on = l in layers, far = l in tooFar) {
+                        layers = if (l in layers) layers - l else layers + l
+                        MapLayer.save(ctx, layers)
+                    }
+                }
+                Legend(Color(0xFFEF4444), "הרכב שלי")
+            }
+            if (tooFar.isNotEmpty()) Text("קרב את המפה כדי לראות: ${tooFar.joinToString { it.label }}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (odds.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Legend(Color(0xFF22C55E), "קל למצוא (${BUCKET_LABELS[bucketOf(System.currentTimeMillis())]})"); Legend(Color(0xFFF59E0B), "בינוני"); Legend(Color(0xFFEF4444), "קשה")
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${marks.size} סימונים", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
@@ -205,6 +253,22 @@ fun MapScreen(
     }
 }
 
+/** Legend entry that also switches its layer on and off. Faded when off or hidden by zoom. */
+@Composable
+private fun LayerChip(color: Color, label: String, on: Boolean, far: Boolean, onClick: () -> Unit) {
+    val alpha = if (!on) 0.35f else if (far) 0.6f else 1f
+    Row(
+        Modifier.clip(RoundedCornerShape(10.dp))
+            .background(if (on) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+            .clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color.copy(alpha = alpha)))
+        Spacer(Modifier.width(4.dp))
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+    }
+}
+
 @Composable
 private fun Legend(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -227,8 +291,9 @@ fun CurbSwatch(t: CurbType) {
 
 private fun drawOverlays(
     ctx: Context, map: MapView, repo: ParkingRepository, garages: List<Garage>, spot: Spot?, marks: List<CurbMark>,
-    odds: Map<String, StreetOdds>, onLongPress: (Double, Double) -> Unit,
+    odds: Map<String, StreetOdds>, folders: MutableMap<MapLayer, FolderOverlay>, onLongPress: (Double, Double) -> Unit,
 ) {
+    map.overlays.filterIsInstance<MyLocationNewOverlay>().forEach { it.disableMyLocation() }
     map.overlays.clear()
     map.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
         override fun singleTapConfirmedHelper(p: GeoPoint?) = false
@@ -277,15 +342,19 @@ private fun drawOverlays(
         position = GeoPoint(lat, lon); icon = dot(color, size); setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         this.title = title; this.snippet = snippet
     }
-    repo.autotel.forEach { map.overlays.add(marker(it.lat, it.lon, AColor.rgb(107, 114, 128), 22, "אוטותל: חניה שמורה", it.label)) }
-    repo.loadingSigns.forEach { map.overlays.add(marker(it.lat, it.lon, AColor.rgb(245, 158, 11), 24, "פריקה וטעינה", it.text)) }
+    // Smallest first so the important lots draw on top; each layer in its own folder for toggling.
+    folders.clear()
+    MapLayer.entries.reversed().forEach { l -> folders[l] = FolderOverlay().also { map.overlays.add(it) } }
+    fun add(l: MapLayer, m: Marker) = folders.getValue(l).add(m)
+    repo.autotel.forEach { add(MapLayer.AUTOTEL, marker(it.lat, it.lon, AColor.rgb(107, 114, 128), 22, "אוטותל: חניה שמורה", it.label)) }
+    repo.loadingSigns.forEach { add(MapLayer.LOADING, marker(it.lat, it.lon, AColor.rgb(245, 158, 11), 24, "פריקה וטעינה", it.text)) }
     repo.otherLots.forEach { l ->
-        map.overlays.add(marker(l.lat, l.lon, AColor.rgb(139, 92, 246), 34, l.name,
+        add(MapLayer.OTHER_LOTS, marker(l.lat, l.lon, AColor.rgb(139, 92, 246), 34, l.name,
             listOfNotNull(l.kind, l.spots?.let { "$it מקומות" }, when (l.free) { true -> "חינם"; false -> "בתשלום"; null -> null }, "מקור: ${l.source}").joinToString(" · ")))
     }
-    repo.nightLots.forEach { map.overlays.add(marker(it.lat, it.lon, AColor.rgb(59, 130, 246), 38, "קרוב לבית: ${it.name}", it.notes)) }
+    repo.nightLots.forEach { add(MapLayer.NEAR_HOME, marker(it.lat, it.lon, AColor.rgb(59, 130, 246), 38, "קרוב לבית: ${it.name}", it.notes)) }
     garages.forEach { g ->
-        map.overlays.add(marker(g.lat, g.lon, AColor.rgb(34, 197, 94), 40, g.name, "${statusLabel(g.status)} · ${g.dayTariff.take(120)}"))
+        add(MapLayer.GARAGES, marker(g.lat, g.lon, AColor.rgb(34, 197, 94), 40, g.name, "${statusLabel(g.status)} · ${g.dayTariff.take(120)}"))
     }
     spot?.let { map.overlays.add(marker(it.lat, it.lon, AColor.rgb(239, 68, 68), 48, "הרכב שלי", it.timeText())) }
 

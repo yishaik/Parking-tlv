@@ -16,6 +16,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.horizontalScroll
@@ -377,13 +378,16 @@ fun ParkingScreen(
     val spotStreet = if (pLat != null && pLon != null) remember(pLat, pLon) { repo.streetNear(pLat, pLon, 40.0) } else null
     val curbHere = if (pLat != null && pLon != null) curbMarks.filter { Geo.distance(it.lat, it.lon, pLat, pLon) < 15 }.maxByOrNull { it.time } else null
     val autotelHere = if (pLat != null && pLon != null) repo.autotel.any { Geo.distance(it.lat, it.lon, pLat, pLon) < 25 } else false
+    // (text, warning?): a warning needs attention; the rest just confirms what is here.
+    val restricted = setOf(CurbType.RED_WHITE.key, CurbType.LOADING.key, CurbType.DRIVEWAY.key, CurbType.BUS_TAXI.key, CurbType.DISABLED.key, CurbType.SHORT_TERM.key)
     val localNotes = buildList {
-        curbHere?.let { add("סימנת כאן: ${CurbType.of(it.type)?.label ?: it.type}") }
-        loadingSigns.firstOrNull()?.let { (d, sign) -> add("תמרור פריקה וטעינה ב-$d מ׳: ${sign.text}") }
-        if (autotelHere) add("יש כאן חניות שמורות לאוטותל, אסור לחנות בהן")
+        curbHere?.let { add("סימנת כאן: ${CurbType.of(it.type)?.label ?: it.type}" to (it.type in restricted)) }
+        loadingSigns.firstOrNull()?.let { (d, sign) -> add("תמרור פריקה וטעינה ב-$d מ׳: ${sign.text}" to true) }
+        if (autotelHere) add("יש כאן חניות שמורות לאוטותל, אסור לחנות בהן" to true)
     }
-    val heroActionable = (explanation?.actionable ?: false) || localNotes.isNotEmpty() ||
-        curbHere?.type in setOf(CurbType.RED_WHITE.key, CurbType.LOADING.key, CurbType.DRIVEWAY.key, CurbType.BUS_TAXI.key, CurbType.DISABLED.key)
+    val heroActionable = (explanation?.actionable ?: false) || localNotes.any { it.second }
+    // Whether a parking app is needed here now (own zone or free hours: no).
+    val pangoNeeded = pLat == null || repo.rules.evaluate(pZone, LocalDateTime.now(), 120, 0, onBoundary).appRequired
     val otherLots = if (pLat == null || pLon == null) emptyList() else
         repo.otherLots.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.filter { it.distance < 700 }.sortedBy { it.distance }.take(5)
     val now = LocalDateTime.now()
@@ -397,14 +401,19 @@ fun ParkingScreen(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(16.dp, 8.dp, 16.dp, 12.dp)) {
+                // Full-strength only when the spot needs a parking app now; otherwise a quiet outline.
+                val fg = if (pangoNeeded) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground
                 Row(
-                    Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(18.dp))
-                        .background(MaterialTheme.colorScheme.onBackground).clickable { askPango = true; Launch.pango(ctx) },
+                    Modifier.fillMaxWidth().height(if (pangoNeeded) 54.dp else 46.dp).clip(RoundedCornerShape(18.dp))
+                        .then(if (pangoNeeded) Modifier.background(MaterialTheme.colorScheme.onBackground)
+                              else Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)))
+                        .clickable { askPango = true; Launch.pango(ctx) },
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.LocalParking, null, tint = MaterialTheme.colorScheme.background)
+                    Icon(Icons.Outlined.LocalParking, null, tint = fg)
                     Spacer(Modifier.width(8.dp))
-                    Text("הפעל חניה בפנגו", color = MaterialTheme.colorScheme.background, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(if (pangoNeeded) "הפעל חניה בפנגו" else "פנגו · לא צריך כאן עכשיו", color = fg,
+                        fontWeight = if (pangoNeeded) FontWeight.SemiBold else FontWeight.Normal, fontSize = if (pangoNeeded) 16.sp else 14.sp)
                 }
             }
         },
@@ -478,7 +487,7 @@ fun ParkingScreen(
                     if (expanded && ex != null) {
                         ex.lines.forEach { Text("• $it", fontSize = 14.sp, color = t.text) }
                         ex.nowLine?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 14.sp, color = t.text, fontWeight = FontWeight.SemiBold) }
-                        localNotes.forEach { Text("⚠ $it", fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold, maxLines = 3) }
+                        localNotes.forEach { (note, warn) -> Text((if (warn) "⚠ " else "✓ ") + note, fontSize = 13.sp, color = t.text, fontWeight = if (warn) FontWeight.SemiBold else FontWeight.Normal, maxLines = 3) }
                     }
                 }
             }
