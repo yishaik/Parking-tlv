@@ -18,8 +18,9 @@ jobs:
       - run: npm ci
       - run: npm run sync
       - run: npx tsx scripts/holidays.ts
+      - run: npm run gen-config
       - run: |
           git config user.name "parking-sync"
           git config user.email "parking-sync@users.noreply.github.com"
-          git add data config/holidays.json
+          git add data config/holidays.json supabase/functions/parking/rules_config.ts
           git diff --cached --quiet || (git commit -m "chore: sync GIS snapshot" && git pull --rebase -q && git push)
