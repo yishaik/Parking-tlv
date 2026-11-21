@@ -37,6 +37,16 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -timezone Asia/Jerusalem
           script: bash .github/scripts/screenshots.sh
+      - name: Keep this run's screenshots on the screenshots-out branch (also when a step failed)
+        if: always()
+        run: |
+          set -e
+          [ -d shots ] || exit 0
+          d=$(mktemp -d); cp -r shots "$d/"; cp instrument.txt "$d/" 2>/dev/null || true
+          cd "$d" && git init -q && git checkout -q -b screenshots-out
+          git config user.name "parking-screenshots" && git config user.email "parking-screenshots@users.noreply.github.com"
+          git add -A && git commit -q -m "screenshots from $GITHUB_SHA"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-out
       - name: Commit screenshots to main
         run: |
           set -e
@@ -44,7 +54,7 @@ jobs:
           git config user.email "parking-screenshots@users.noreply.github.com"
           git fetch -q origin main
           git checkout -q -B main origin/main
-          rm -rf docs/screenshots && mkdir -p docs && cp -r shots docs/screenshots
+          rm -rf docs/screenshots && mkdir -p docs && cp -r shots docs/screenshots && rm -f docs/screenshots/fail-*
           git add docs/screenshots
           git diff --cached --quiet || (git commit -q -m "docs: screenshots from the emulator walkthrough ($(git rev-parse --short "$GITHUB_SHA"))" && git push -q origin main)
       - if: always()
