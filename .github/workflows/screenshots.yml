@@ -1,0 +1,52 @@
+name: screenshots
+# Runs the app on an Android emulator with sample data, walks through every screen (a crash fails the job)
+# and commits the screenshots to docs/screenshots on main.
+# Runs on each release, and when the walkthrough itself changes. Push main to the `screenshots` branch to run it on demand.
+on:
+  push:
+    branches: [release, screenshots]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.10.2" }
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: gradle -p android assembleDebug assembleDebugAndroidTest
+      - name: Walk through the app on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -timezone Asia/Jerusalem
+          script: bash .github/scripts/screenshots.sh
+      - name: Commit screenshots to main
+        run: |
+          set -e
+          git config user.name "parking-screenshots"
+          git config user.email "parking-screenshots@users.noreply.github.com"
+          git fetch -q origin main
+          git checkout -q -B main origin/main
+          rm -rf docs/screenshots && mkdir -p docs && cp -r shots docs/screenshots
+          git add docs/screenshots
+          git diff --cached --quiet || (git commit -q -m "docs: screenshots from the emulator walkthrough ($(git rev-parse --short "$GITHUB_SHA"))" && git push -q origin main)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: screenshots, path: "shots/", if-no-files-found: ignore }

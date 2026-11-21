@@ -90,6 +90,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -420,7 +421,7 @@ fun ParkingScreen(
         },
     ) { inner ->
         LazyColumn(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().testTag("main-list"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = inner.calculateBottomPadding() + 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
