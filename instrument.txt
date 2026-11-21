@@ -1,0 +1,21 @@
+
+il.yishai.parking.ScreenshotTest:
+Error in walkThrough(il.yishai.parking.ScreenshotTest):
+java.lang.AssertionError: walkthrough steps failed:
+map: Failed: performScrollToNode(Text + EditableText contains 'חניה בת״א' (ignoreCase: false))
+dark-map: Failed to inject touch input.
+	at il.yishai.parking.ScreenshotTest.walkThrough(ScreenshotTest.kt:167)
+
+
+Time: 46.018
+There was 1 failure:
+1) walkThrough(il.yishai.parking.ScreenshotTest)
+java.lang.AssertionError: walkthrough steps failed:
+map: Failed: performScrollToNode(Text + EditableText contains 'חניה בת״א' (ignoreCase: false))
+dark-map: Failed to inject touch input.
+	at il.yishai.parking.ScreenshotTest.walkThrough(ScreenshotTest.kt:167)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
