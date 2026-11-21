@@ -29,23 +29,41 @@ async function layer(id: number, fields = "*") {
   return ((await r.json()) as { features?: any[] }).features ?? [];
 }
 
-/** City layers, refreshed every 12 hours. Failed layers keep their previous value. */
-export async function loadData() {
-  if (data.zones.length && Date.now() - loadedAt < 12 * 3600_000) return;
-  const [zones, nightLots, publicLots, loadingSigns, autotel] = await Promise.all([
-    layer(544), layer(488),
-    layer(556, "name,address,num_vehicles,description"),
-    layer(449, "traffic_sign_text,status"),
-    layer(602, "address0,capacity,lat,lon"),
-  ].map((p) => p.catch(() => [])));
-  const pts = (l: any[]) => l.filter((f) => f.geometry);
-  setData({
-    zones: zones.length ? zones : data.zones,
-    nightLots: nightLots.length ? pts(nightLots) : data.nightLots,
-    publicLots: publicLots.length ? pts(publicLots) : data.publicLots,
-    loadingSigns: loadingSigns.length ? pts(loadingSigns) : data.loadingSigns,
-    autotel: autotel.length ? autotel : data.autotel,
-  });
+/** Where each layer came from on the last load: the city GIS, or the nightly snapshot in the repo. */
+export const dataSource: Record<string, "live" | "snapshot" | "none"> = {};
+export const SNAPSHOT = "https://raw.githubusercontent.com/yishaik/Parking-tlv/main/data";
+
+async function snapshot(name: string): Promise<any[]> {
+  const r = await fetch(`${SNAPSHOT}/${name}.json`, { signal: AbortSignal.timeout(15000) });
+  return ((await r.json()) as { features?: any[] }).features ?? [];
+}
+
+/**
+ * City layers, refreshed every 12 hours. A layer the city GIS does not return falls back to the
+ * nightly snapshot in the repo, and failing that keeps its previous value.
+ */
+export async function loadData(force = false) {
+  if (!force && data.zones.length && Date.now() - loadedAt < 12 * 3600_000) return;
+  const jobs: [keyof CityData, () => Promise<any[]>][] = [
+    ["zones", () => layer(544)],
+    ["nightLots", () => layer(488)],
+    ["publicLots", () => layer(556, "name,address,num_vehicles,description")],
+    ["loadingSigns", () => layer(449, "traffic_sign_text,status")],
+    ["autotel", () => layer(602, "address0,capacity,lat,lon")],
+  ];
+  const results = await Promise.all(jobs.map(async ([name, live]) => {
+    const l = await live().catch(() => []);
+    if (l.length) return [name, l, "live"] as const;
+    const s = await snapshot(name).catch(() => []);
+    return [name, s, s.length ? "snapshot" : "none"] as const;
+  }));
+  const next: Partial<CityData> = {};
+  for (const [name, list, source] of results) {
+    dataSource[name] = source === "none" && (data[name] as unknown[]).length ? dataSource[name] ?? "none" : source;
+    if (!list.length) continue;
+    (next as any)[name] = name === "zones" || name === "autotel" ? list : list.filter((f: any) => f.geometry);
+  }
+  setData(next);
 }
 
 export interface Event {
@@ -60,7 +78,7 @@ export const TYPE_LABELS: Record<string, string> = {
 };
 export const CURB_LABELS: Record<string, string> = {
   blue_white: "כחול-לבן", preferred: "מועדפת לתושבי האזור", gray: "אפור / ללא סימון", red_white: "אדום-לבן (אסור)",
-  short_term: "קצרת מועד", loading: "פריקה וטעינה", disabled: "נכים", bus_taxi: "תחנת אוטובוס / מונית", driveway: "כניסה לחניה / חסום",
+  short_term: "קצרת מועד", loading: "פריקה וטעינה", disabled: "נכים", bus_taxi: "תחנת אוטובוס / מונית", driveway: "כניסה לחניה / חסום", school_lot: "חניון בית ספר (אחרי הלימודים)",
 };
 const SEARCH_MIN: Record<string, number> = { "0": 0, "5": 3, "15": 10, "30": 20 };
 
@@ -246,6 +264,7 @@ export function parkingNearDestination(
     reminders: [
       "60-minute short-term spots are free once a day, but must be started in a parking app",
       "Preferred-parking segments are for that zone's permit holders only: check the sign",
+      "Ahuzot HaHof garage tariffs rose ~20% in 2026 and the 75% resident discount became 50% in five central garages: trust the tariff text, not old percentages",
     ],
   };
 }

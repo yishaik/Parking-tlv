@@ -1,6 +1,6 @@
 import postgres from "npm:postgres@3.4.5";
 import {
-  GIS, autotelNear, curbMapNear, garagesNear, israelNow, loadData, loadingSignsNear, mapsLink, otherLotsNear, parkingNearDestination,
+  GIS, autotelNear, curbMapNear, data, dataSource, garagesNear, israelNow, loadData, loadingSignsNear, mapsLink, otherLotsNear, parkingNearDestination,
   parseGarages, parseLocal, rules, stats, streetCost, TYPE_LABELS, zoneAt, type Curb, type Event, type Garage,
 } from "./tools.ts";
 import { fetchNotices } from "./notices.ts";
@@ -162,7 +162,7 @@ async function mcp(req: Request, store: Store): Promise<Response> {
   const reply = (result: unknown) => json({ jsonrpc: "2.0", id: msg.id, result });
   switch (msg.method) {
     case "initialize":
-      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.1" } });
+      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.2" } });
     case "ping": return reply({});
     case "tools/list": return reply({ tools: TOOLS });
     case "tools/call":
@@ -196,11 +196,26 @@ async function unscheduleCron() {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // Log the details, answer without them.
+    console.error("parking:", e);
+    return json({ error: "Internal error, try again in a moment" }, 500);
+  }
+});
+
+async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^.*?\/parking/, "") || "/";
   const base = `https://${url.host}/functions/v1/parking`;
   if (req.method === "OPTIONS") return new Response(null, { headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, mcp-session-id, mcp-protocol-version", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS" } });
-  if (path === "/") return json({ name: "parking-tlv", version: "0.6.1", mcp: `${base}/mcp` });
+  if (path === "/") return json({ name: "parking-tlv", version: "0.6.2", mcp: `${base}/mcp` });
+  // Public, no data: what the server knows right now. server-health checks it.
+  if (path === "/health") {
+    await loadData();
+    return json({ ok: data.zones.length > 0, version: "0.6.2", zones: data.zones.length, nightLots: data.nightLots.length, publicLots: data.publicLots.length, loadingSigns: data.loadingSigns.length, autotel: data.autotel.length, source: dataSource });
+  }
   if (path === "/api/register" && req.method === "POST") {
     const t = await store.register();
     return t ? json({ token: t }) : json({ error: "Already registered" }, 409);
@@ -294,4 +309,4 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const del = path.match(/^\/api\/events\/([\w-]+)$/);
   if (del && req.method === "DELETE") { await store.remove(del[1]); return json({ ok: true }); }
   return json({ error: "Not found" }, 404);
-});
+}

@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
     paths: ["supabase/functions/**", ".github/workflows/server-health.yml"]
+  schedule:
+    - cron: "41 5 * * *" # daily: the server and its city data are up
   workflow_dispatch:
 jobs:
   health:
@@ -11,6 +13,8 @@ jobs:
       - run: |
           BASE=https://vybivdkskrkafcuedvbg.supabase.co/functions/v1/parking
           curl -sf "$BASE/" | tee /dev/stderr | grep -q '"mcp"'
+          # City data loaded (live or from the repo snapshot)
+          curl -sf "$BASE/health" | tee /dev/stderr | python3 -c 'import json,sys; h=json.load(sys.stdin); assert h["ok"] and h["zones"] >= 5 and h["nightLots"] > 50, h'
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/mcp" -d '{}')
           echo "unauthenticated /mcp -> $code"; test "$code" = 401
           # v0.6+: Morty link claim rejects a bad code; agent tool route needs a token

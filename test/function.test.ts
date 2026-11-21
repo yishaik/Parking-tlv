@@ -101,3 +101,22 @@ describe("link for Morty", () => {
     expect(t).toContain("1 חניות לא סומנו");
   });
 });
+
+describe("city data fallback", () => {
+  it("uses the repo snapshot when the city GIS is down", async () => {
+    const { loadData, data, dataSource, SNAPSHOT } = await import("../supabase/functions/parking/tools.ts");
+    const { readFileSync } = await import("node:fs");
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const u = String(input);
+      if (u.startsWith(SNAPSHOT)) return new Response(readFileSync(`data/${u.split("/").pop()}`, "utf8"));
+      throw new Error("GIS down");
+    }) as typeof fetch;
+    try {
+      await loadData(true);
+    } finally { globalThis.fetch = real; }
+    expect(data.zones.length).toBeGreaterThan(5);
+    expect(dataSource.zones).toBe("snapshot");
+    expect(dataSource.nightLots).toBe("snapshot");
+  });
+});
