@@ -4,7 +4,8 @@ import {
   parseGarages, parseLocal, rules, stats, streetCost, TYPE_LABELS, zoneAt, type Curb, type Event, type Garage,
 } from "./tools.ts";
 import { fetchNotices } from "./notices.ts";
-import { handleUpdate, send, weeklyText } from "./telegram.ts";
+import { TOOLS } from "./catalog.ts";
+import { freshNews, guide, HELLO, LINK_NAME, LINK_TITLE, linkPayload, newCode, newToken, weeklyText } from "./link.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 3 });
 
@@ -52,6 +53,33 @@ const store = {
     await sql`insert into parking.settings (key, value) values (${key}, ${sql.json(value as any)})
               on conflict (key) do update set value = excluded.value`;
   },
+  async deleteSetting(key: string) { await sql`delete from parking.settings where key = ${key}`; },
+  /** A linked agent host (Morty) by its token; marks it seen. */
+  async agent(token: string): Promise<boolean> {
+    const r = await sql`update parking.agents set last_seen = now() where token = ${token} returning name`;
+    return r.length > 0;
+  },
+  async agents(): Promise<{ name: string; created: Date; last_seen: Date | null }[]> {
+    return (await sql`select name, created, last_seen from parking.agents order by created desc`) as any;
+  },
+  async replaceAgent(name: string, token: string) {
+    await sql`delete from parking.agents`;
+    await sql`insert into parking.agents (token, name) values (${token}, ${name})`;
+  },
+  async removeAgents() { await sql`delete from parking.agents`; },
+  async queue(kind: string, risk: string, text: string): Promise<boolean> {
+    if (!(await sql`select 1 from parking.agents limit 1`).length) return false;
+    await sql`insert into parking.notifications (kind, risk, text) values (${kind}, ${risk}, ${text.slice(0, 1500)})`;
+    await sql`delete from parking.notifications where time < now() - interval '14 days'`;
+    return true;
+  },
+  async feed(after: number) {
+    return await sql`select id, time, kind, risk, text from parking.notifications where id > ${after} order by id limit 50`;
+  },
+  async lastNotification(): Promise<number> {
+    const r = await sql`select coalesce(max(id), 0) as id from parking.notifications`;
+    return Number(r[0].id);
+  },
 };
 type Store = typeof store;
 
@@ -84,31 +112,6 @@ async function geocode(address: string): Promise<{ lat: number; lon: number; lab
     return a ? { lat: a.lat, lon: a.lon, label: a.t_ktovet_melea.trim() } : null;
   } catch { return null; }
 }
-
-// ---------- MCP (stateless Streamable HTTP, JSON responses) ----------
-const botDeps = {
-  setting: store.setting, setSetting: store.setSetting,
-  events: (limit?: number) => store.events(limit), curbs: () => store.curbs(),
-  geocode, liveGarages, notices: fetchNotices,
-};
-
-const num = { type: "number" } as const;
-const str = { type: "string" } as const;
-const point = { type: "object", properties: { lat: num, lon: num, radiusMeters: num }, required: ["lat", "lon"] };
-const TOOLS = [
-  { name: "parking_near_destination", description: "Best parking options near a Tel Aviv destination for the owner (zone 9 permit holder): street rules and cost (own zone, boundary streets, holidays, app requirement), garages with live occupancy, the owner's assigned close-to-home lots, other public lots, loading signs, Autotel-reserved spots, the owner's own curb marks and parking history near the destination. Give address (Hebrew street + number, e.g. 'דיזנגוף 50') or lat/lon.", inputSchema: { type: "object", properties: { address: str, lat: num, lon: num, arrival: { type: "string", description: "Israel local time, e.g. 2026-11-20T18:30. Default now." }, minutes: { type: "number", description: "Planned stay, default 120" } } } },
-  { name: "where_is_my_car", description: "The owner's last saved parking spot with walking navigation link.", inputSchema: { type: "object", properties: {} } },
-  { name: "parking_history", description: "The owner's parking history (newest first): place, zone, street, parking type, search time.", inputSchema: { type: "object", properties: { limit: num } } },
-  { name: "parking_stats", description: "Statistics from the owner's history: parkings by type, streets where a spot was found fastest, search time by time of day. Optionally around a point.", inputSchema: { type: "object", properties: { lat: num, lon: num, radiusMeters: num } } },
-  { name: "curb_map_near", description: "Curb markings the owner mapped (blue-white, preferred for residents, gray/unmarked, red-white, short-term, loading, disabled, bus/taxi, driveway), plus curb types implied by classified parkings, grouped by street.", inputSchema: point },
-  { name: "garages_near", description: "Ahuzot HaHof garages near a point, with live occupancy, tariffs, resident discount, and whether it is one of the owner's assigned close-to-home lots (free Sun-Thu 19:00-08:00, Fri/holiday eve from 15:00, Saturday and holidays).", inputSchema: point },
-  { name: "other_lots_near", description: "Other licensed public parking lots near a point (city layer 556).", inputSchema: point },
-  { name: "loading_signs_near", description: "Loading/unloading traffic signs near a point, with the sign text (days and hours).", inputSchema: point },
-  { name: "zone_at", description: "Tel Aviv parking zone at a point, whether it is the owner's permit zone, and whether it is a boundary street of that zone.", inputSchema: { type: "object", properties: { lat: num, lon: num }, required: ["lat", "lon"] } },
-  { name: "street_parking_cost", description: "Blue-white street parking cost at a point for the owner. costILS null = rate not verified; never invent one. appRequired = must start Pango/Cellopark even if free.", inputSchema: { type: "object", properties: { lat: num, lon: num, start: str, minutes: num, freeMinutesUsedToday: num }, required: ["lat", "lon"] } },
-  { name: "parking_notices", description: "Recent parking-related news in Tel Aviv: free blue-white parking announcements (e.g. emergencies), price changes, and events in Park HaYarkon / the port / Expo that load parking in zone 9. News is a signal: mention it, don't treat it as the rule.", inputSchema: { type: "object", properties: {} } },
-  { name: "geocode", description: "Convert a Tel Aviv address (Hebrew street + house number) to coordinates using the city's address data.", inputSchema: { type: "object", properties: { address: str }, required: ["address"] } },
-];
 
 async function callTool(name: string, a: Record<string, any>, store: Store): Promise<unknown> {
   const radius = (d: number) => a.radiusMeters ?? d;
@@ -153,7 +156,7 @@ async function mcp(req: Request, store: Store): Promise<Response> {
   const reply = (result: unknown) => json({ jsonrpc: "2.0", id: msg.id, result });
   switch (msg.method) {
     case "initialize":
-      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.5.0" } });
+      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.0" } });
     case "ping": return reply({});
     case "tools/list": return reply({ tools: TOOLS });
     case "tools/call":
@@ -168,37 +171,84 @@ async function mcp(req: Request, store: Store): Promise<Response> {
   }
 }
 
+const CRON_JOBS: [string, string, string][] = [
+  // [job name, schedule (UTC), path]
+  ["parking-weekly", "30 6 * * 0", "weekly"], // Sunday 08:30 Israel winter time
+  ["parking-news", "17 * * * *", "news"],
+];
+
+async function scheduleCron(base: string) {
+  let secret = await store.setting<string | null>("cronSecret", null);
+  if (!secret) { secret = newToken(); await store.setSetting("cronSecret", secret); }
+  for (const [job, when, path] of CRON_JOBS) {
+    await sql`select cron.unschedule(jobid) from cron.job where jobname = ${job}`;
+    await sql`select cron.schedule(${job}, ${when}, ${`select net.http_post(url := '${base}/cron/${path}/${secret}', headers := '{"content-type":"application/json"}'::jsonb, body := '{}'::jsonb)`})`;
+  }
+}
+async function unscheduleCron() {
+  for (const [job] of CRON_JOBS) await sql`select cron.unschedule(jobid) from cron.job where jobname = ${job}`;
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^.*?\/parking/, "") || "/";
+  const base = `https://${url.host}/functions/v1/parking`;
   if (req.method === "OPTIONS") return new Response(null, { headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, mcp-session-id, mcp-protocol-version", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS" } });
-  if (path === "/") return json({ name: "parking-tlv", mcp: `${url.origin}/functions/v1/parking/mcp` });
+  if (path === "/") return json({ name: "parking-tlv", version: "0.6.0", mcp: `${base}/mcp` });
   if (path === "/api/register" && req.method === "POST") {
     const t = await store.register();
     return t ? json({ token: t }) : json({ error: "Already registered" }, 409);
   }
-  // Telegram webhook and weekly cron: authenticated by a random secret in the path.
-  const hook = path.match(/^\/(telegram|cron\/weekly)\/([a-f0-9]{32,})$/);
-  if (hook) {
-    const secret = await store.setting<string | null>("telegramSecret", null);
-    if (!secret || hook[2] !== secret) return json({ error: "Not found" }, 404);
-    await loadData();
-    if (hook[1] === "telegram") {
-      const update = await req.json().catch(() => null);
-      if (update) await handleUpdate(update, botDeps);
-      return json({ ok: true });
+
+  // An agent host (Morty) redeems the one-time code the app put in the Telegram link.
+  if (path === "/link/claim" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { code?: string; client?: string };
+    const pending = await store.setting<{ code: string; expires: number } | null>("linkCode", null);
+    if (!pending || !body.code || body.code !== pending.code || Date.now() > pending.expires) {
+      return json({ error: "The link code is wrong or expired. Tap 'connect to Morty' in the parking app again." }, 400);
     }
-    const [tg, chat] = await Promise.all([store.setting<string | null>("telegramToken", null), store.setting<number | null>("telegramChat", null)]);
-    if (tg && chat) await send(tg, chat, await weeklyText(botDeps));
+    await store.deleteSetting("linkCode");
+    const token = newToken();
+    await store.replaceAgent(String(body.client ?? "agent").slice(0, 32), token);
+    await store.setSetting("seenNews", (await fetchNotices().catch(() => [])).map((n) => n.link));
+    await scheduleCron(base);
+    return json({ name: LINK_NAME, title: LINK_TITLE, base, token, auth: { header: "Authorization", scheme: "Bearer" }, guide: guide(), feed: "/api/feed", cursor: await store.lastNotification(), hello: HELLO });
+  }
+
+  // Scheduled jobs: authenticated by a random secret in the path.
+  const cron = path.match(/^\/cron\/(weekly|news)\/([a-f0-9]{32,})$/);
+  if (cron) {
+    const secret = await store.setting<string | null>("cronSecret", null);
+    if (!secret || cron[2] !== secret) return json({ error: "Not found" }, 404);
+    await loadData();
+    if (cron[1] === "weekly") {
+      const text = weeklyText(await store.events());
+      if (text) await store.queue("weekly", "low", text);
+    } else {
+      const fresh = freshNews(await fetchNotices().catch(() => []), await store.setting<string[]>("seenNews", []));
+      for (const n of fresh.push) await store.queue("news", n.risk, n.text);
+      await store.setSetting("seenNews", fresh.seen);
+    }
     return json({ ok: true });
   }
 
   const token = await store.token();
-  const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? url.searchParams.get("key");
-  if (!token || given !== token) return json({ error: "Unauthorized" }, 401);
+  const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? url.searchParams.get("key") ?? "";
+  const who = token && given === token ? "owner" : given && (await store.agent(given)) ? "agent" : null;
+  if (!who) return json({ error: "Unauthorized" }, 401);
 
   await loadData();
+  // Owner (the app) and a linked agent host may read.
   if (path === "/mcp") return mcp(req, store);
+  if (path === "/api/tools" && req.method === "GET") return json(TOOLS);
+  const tool = path.match(/^\/api\/tool\/([a-z_]+)$/);
+  if (tool && req.method === "POST") {
+    const args = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    try { return json(await callTool(tool[1], args ?? {}, store)); } catch (e) { return json({ error: String(e) }, 400); }
+  }
+  if (path === "/api/feed" && req.method === "GET") return json(await store.feed(Number(url.searchParams.get("after") ?? 0) || 0));
+  if (who !== "owner") return json({ error: "Only the parking app can do this" }, 403);
+
   if (path === "/api/events" && req.method === "POST") {
     const body = (await req.json()) as { events: Event[] };
     return json({ saved: await store.upsert(body.events ?? []) });
@@ -208,31 +258,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const body = (await req.json()) as { curbs?: Curb[]; deleted?: string[] };
     return json({ saved: await store.saveCurbs(body.curbs ?? [], body.deleted ?? []) });
   }
-  if (path === "/api/telegram/setup" && req.method === "POST") {
-    const body = (await req.json()) as { token?: string };
-    const tg = (body.token ?? "").trim();
-    if (!/^\d+:[\w-]{30,}$/.test(tg)) return json({ error: "זה לא נראה כמו טוקן של בוט (מספר:אותיות)" }, 400);
-    const me = (await (await fetch(`https://api.telegram.org/bot${tg}/getMe`)).json()) as { ok: boolean; result?: { username: string } };
-    if (!me.ok) return json({ error: "טלגרם דחה את הטוקן" }, 400);
-    const secret = [...crypto.getRandomValues(new Uint8Array(20))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const base = `https://${url.host}/functions/v1/parking`;
-    const wh = (await (await fetch(`https://api.telegram.org/bot${tg}/setWebhook`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: `${base}/telegram/${secret}`, allowed_updates: ["message", "edited_message"], drop_pending_updates: true }),
-    })).json()) as { ok: boolean; description?: string };
-    if (!wh.ok) return json({ error: `לא הצלחתי להגדיר webhook: ${wh.description ?? ""}` }, 400);
-    await store.setSetting("telegramToken", tg);
-    await store.setSetting("telegramSecret", secret);
-    await sql`delete from parking.settings where key = 'telegramChat'`;
-    // Weekly summary every Sunday 08:30 Israel winter time (06:30 UTC).
-    await sql`select cron.unschedule(jobid) from cron.job where jobname = 'parking-weekly'`;
-    await sql`select cron.schedule('parking-weekly', '30 6 * * 0', ${`select net.http_post(url := '${base}/cron/weekly/${secret}', headers := '{"content-type":"application/json"}'::jsonb, body := '{}'::jsonb)`})`;
-    return json({ ok: true, bot: me.result?.username });
-  }
   if (path === "/api/profile" && req.method === "POST") {
     const body = (await req.json()) as { assignedLots?: string[] };
     if (Array.isArray(body.assignedLots)) await store.setSetting("assignedLots", body.assignedLots);
     return json({ ok: true });
+  }
+  if (path === "/api/link/start" && req.method === "POST") {
+    const code = newCode();
+    await store.setSetting("linkCode", { code, expires: Date.now() + 10 * 60_000 });
+    return json({ payload: linkPayload(url.host, code), expiresInSeconds: 600 });
+  }
+  if (path === "/api/link/status" && req.method === "GET") {
+    const a = (await store.agents())[0];
+    return json(a ? { linked: true, client: a.name, since: a.created, lastSeen: a.last_seen } : { linked: false });
+  }
+  if (path === "/api/link/revoke" && req.method === "POST") {
+    await store.removeAgents();
+    await unscheduleCron();
+    return json({ ok: true });
+  }
+  if (path === "/api/notify" && req.method === "POST") {
+    const body = (await req.json()) as { text?: string; kind?: string; risk?: string };
+    const text = (body.text ?? "").trim();
+    if (!text) return json({ error: "text is required" }, 400);
+    const risk = ["low", "medium", "high"].includes(body.risk ?? "") ? body.risk! : "low";
+    return json({ queued: await store.queue((body.kind ?? "app").slice(0, 24), risk, text) });
   }
   const del = path.match(/^\/api\/events\/([\w-]+)$/);
   if (del && req.method === "DELETE") { await store.remove(del[1]); return json({ ok: true }); }

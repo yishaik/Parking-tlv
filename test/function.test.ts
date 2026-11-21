@@ -72,40 +72,32 @@ describe("function tools", () => {
   });
 });
 
-import { handleUpdate } from "../supabase/functions/parking/telegram.ts";
-import { vi } from "vitest";
+import { freshNews, guide, linkPayload, newCode, weeklyText } from "../supabase/functions/parking/link.ts";
 
-describe("telegram bot", () => {
-  const settings: Record<string, unknown> = { telegramToken: "123:abc", telegramChat: null };
-  const sent: string[] = [];
-  const deps = {
-    setting: async <T,>(k: string, f: T) => (settings[k] ?? f) as T,
-    setSetting: async (k: string, v: unknown) => { settings[k] = v; },
-    events: async () => [{ id: "e1", lat: NORDAU.lat, lon: NORDAU.lon, time: Date.now(), source: "manual", zone: 9, street: "נורדאו", type: "blue_white", search: "5" }] as Event[],
-    curbs: async () => [],
-    geocode: async (a: string) => (a.includes("נורדאו") ? { lat: NORDAU.lat, lon: NORDAU.lon, label: "נורדאו 86" } : null),
-    liveGarages: async () => ({ garages: garages(), live: true }),
-    notices: async () => [],
-  };
-  beforeAll(() => {
-    vi.stubGlobal("fetch", async (_u: string, init?: { body?: string }) => { if (init?.body) sent.push(JSON.parse(init.body).text); return new Response("{}"); });
+describe("link for Morty", () => {
+  it("builds a Telegram start payload within limits", () => {
+    const p = linkPayload("vybivdkskrkafcuedvbg.supabase.co", newCode());
+    expect(p).toMatch(/^link-sb-vybivdkskrkafcuedvbg-parking-[A-Za-z0-9]{16}$/);
+    expect(p.length).toBeLessThanOrEqual(64);
   });
-
-  it("binds to the first /start chat and ignores others", async () => {
-    await handleUpdate({ message: { chat: { id: 42 }, text: "/start" } }, deps);
-    expect(settings.telegramChat).toBe(42);
-    const n = sent.length;
-    await handleUpdate({ message: { chat: { id: 99 }, text: "/car" } }, deps);
-    expect(sent.length).toBe(n);
+  it("describes every tool in the agent guide", () => {
+    const g = guide();
+    for (const t of ["parking_near_destination", "where_is_my_car", "parking_notices", "geocode"]) expect(g).toContain(t);
+    expect(g).toContain("/api/tool/");
   });
-
-  it("answers where the car is and parking near an address with a time", async () => {
-    await handleUpdate({ message: { chat: { id: 42 }, text: "/car" } }, deps);
-    expect(sent.at(-1)).toContain("נורדאו");
-    await handleUpdate({ message: { chat: { id: 42 }, text: "איפה לחנות ליד נורדאו 86 ב-20:00" } }, deps);
-    expect(sent.at(-1)).toContain("20:00");
-    expect(sent.at(-1)).toContain("האזור שלך");
-    await handleUpdate({ message: { chat: { id: 42 }, text: "רחוב שלא קיים 5" } }, deps);
-    expect(sent.at(-1)).toContain("לא מצאתי");
+  it("pushes only new free-parking and price news", () => {
+    const n = (kind: any, link: string) => ({ kind, title: "t", source: "s", link, publishedAt: "2026-11-20T10:00:00Z" });
+    const r = freshNews([n("free_parking", "a"), n("event", "b"), n("price_change", "c"), n("free_parking", "d")], ["d"]);
+    expect(r.push.map((p) => p.text.split("\n")[1])).toEqual(["a", "c"]);
+    expect(r.push[0].risk).toBe("medium");
+    expect(r.seen.slice(0, 4)).toEqual(["a", "b", "c", "d"]);
+  });
+  it("summarises the last week only", () => {
+    const now = Date.parse("2026-11-22T08:00:00Z");
+    const e = (days: number, type: string | null): Event => ({ id: String(days), lat: NORDAU.lat, lon: NORDAU.lon, time: now - days * 86_400_000, source: "t", zone: 9, street: "נורדאו", type, search: "5" });
+    expect(weeklyText([e(10, "blue_white")], now)).toBeNull();
+    const t = weeklyText([e(1, "blue_white"), e(2, null), e(9, "garage")], now)!;
+    expect(t).toContain("2 חניות");
+    expect(t).toContain("1 חניות לא סומנו");
   });
 });
