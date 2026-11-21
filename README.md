@@ -27,7 +27,7 @@ npm test         # TZ=UTC npx vitest run
 
 כלים: `parking_near_destination`, `where_is_my_car`, `parking_history`, `parking_stats`, `curb_map_near`, `garages_near`, `other_lots_near`, `loading_signs_near`, `zone_at`, `street_parking_cost`, `parking_notices`, `geocode`.
 
-**בוט טלגרם:** יוצרים בוט ב-@BotFather, מדביקים את הטוקן באפליקציה ("בוט טלגרם"), ושולחים לו /start. הצ׳אט הראשון ננעל כבעלים. שואלים "דיזנגוף 50" או "דיזנגוף 50 ב-20:00", שולחים מיקום, /car, /week, /news. סיכום שבועי נשלח בימי א׳ (pg_cron).
+**מורטי בטלגרם:** באפליקציה ← "מורטי בטלגרם" ← חבר. נפתח הצ'אט עם מורטי עם קוד חד-פעמי, לוחצים Start, ומורטי מקבל טוקן משלו (קריאה בלבד) ומדריך לכלים. מאז אפשר לשאול אותו בטלגרם על חניה, ותזכורות פנגו, חניון שהתפנה, חניה חינם, שינויי מחיר וסיכום שבועי מגיעים דרכו (`/api/notify` → `/api/feed`). ניתוק מהאפליקציה מבטל את הטוקן.
 
 ## מקורות מידע
 | מקור | מה נותן |

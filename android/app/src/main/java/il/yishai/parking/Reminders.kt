@@ -45,7 +45,9 @@ object Notifications {
     private fun canPost(ctx: Context) = Build.VERSION.SDK_INT < 33 || Perms.has(ctx, Manifest.permission.POST_NOTIFICATIONS)
 
     @SuppressLint("MissingPermission")
-    fun reminder(ctx: Context, id: Int, title: String, text: String, pangoAction: Boolean = true) {
+    /** forward: risk level for Morty's Telegram ("high" passes quiet hours), or null to keep it on the phone. */
+    fun reminder(ctx: Context, id: Int, title: String, text: String, pangoAction: Boolean = true, forward: String? = "high") {
+        if (forward != null) Sync.forward(ctx, title, text, if (pangoAction) "pango" else "app", forward)
         if (!canPost(ctx)) return
         ensureChannel(ctx)
         val n = NotificationCompat.Builder(ctx, CHANNEL)

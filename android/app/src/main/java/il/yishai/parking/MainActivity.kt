@@ -190,6 +190,8 @@ fun ParkingScreen(
     var overrideUntil by remember { mutableStateOf(FreeOverride.until(ctx)) }
     var watchTick by remember { mutableStateOf(0) }
     var telegramOpen by remember { mutableStateOf(false) }
+    var mortyLinked by remember { mutableStateOf(Sync.mortyLinked(ctx)) }
+    LaunchedEffect(telegramOpen) { if (!telegramOpen) Sync.mortyStatus(ctx)?.let { mortyLinked = it } }
     val curbStore = remember { CurbStore(ctx) }
     var curbMarks by remember { mutableStateOf(curbStore.all()) }
     val assignedPrefs = remember { ctx.getSharedPreferences("assigned", android.content.Context.MODE_PRIVATE) }
@@ -252,28 +254,48 @@ fun ParkingScreen(
     }
 
     if (telegramOpen) {
-        var botToken by remember { mutableStateOf("") }
+        var bot by remember { mutableStateOf(Sync.mortyBot(ctx)) }
+        var linked by remember { mutableStateOf(Sync.mortyLinked(ctx)) }
         var result by remember { mutableStateOf<String?>(null) }
         var busy by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { Sync.mortyStatus(ctx)?.let { linked = it } }
         AlertDialog(
             onDismissRequest = { telegramOpen = false },
-            title = { Text("חיבור בוט טלגרם") },
+            title = { Text("מורטי בטלגרם") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("1. בטלגרם פתח את @BotFather ושלח /newbot, תן שם, וקבל טוקן.", fontSize = 14.sp)
-                    Text("2. הדבק כאן את הטוקן. הוא נשמר רק בשרת שלך.", fontSize = 14.sp)
-                    androidx.compose.material3.OutlinedTextField(botToken, { botToken = it }, singleLine = true, placeholder = { Text("123456:ABC…") })
-                    Text("3. שלח לבוט /start. מאותו רגע הוא עונה רק לך.", fontSize = 14.sp)
+                    if (linked) {
+                        Text("מחובר. אפשר לשאול את מורטי בטלגרם איפה לחנות ליד כתובת, איפה הרכב ומה חדש.", fontSize = 14.sp)
+                        Text("תזכורות פנגו, חניון שהתפנה, חניה חינם וסיכום שבועי נשלחים גם לטלגרם.", fontSize = 14.sp)
+                    } else {
+                        Text("לחיצה על \"חבר\" פותחת את הצ'אט עם מורטי בטלגרם. לוחצים שם Start וזהו, בלי להעתיק שום טוקן.", fontSize = 14.sp)
+                        androidx.compose.material3.OutlinedTextField(bot, { bot = it }, singleLine = true, label = { Text("שם הבוט של מורטי") }, placeholder = { Text("@…bot") })
+                    }
                     result?.let { Text(it, fontWeight = FontWeight.SemiBold) }
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && botToken.isNotBlank(), onClick = {
+                if (linked) TextButton(enabled = !busy, onClick = {
                     busy = true
-                    scope.launch { result = Sync.setupTelegram(ctx, botToken).second; busy = false }
-                }) { Text(if (busy) "מחבר…" else "חבר") }
+                    scope.launch { result = if (Sync.mortyUnlink(ctx)) { linked = false; "נותק" } else "הניתוק נכשל, נסה שוב"; busy = false }
+                }) { Text("נתק") }
+                else TextButton(enabled = !busy && bot.isNotBlank(), onClick = {
+                    busy = true
+                    Sync.setMortyBot(ctx, bot)
+                    scope.launch {
+                        Sync.mortyLinkUrl(ctx)
+                            .onSuccess { Launch.web(ctx, it); result = "בטלגרם לחץ Start. אחרי שמורטי מאשר, חזור לכאן ולחץ \"בדוק\"." }
+                            .onFailure { result = it.message }
+                        busy = false
+                    }
+                }) { Text(if (busy) "רגע…" else "חבר") }
             },
-            dismissButton = { TextButton(onClick = { telegramOpen = false }) { Text("סגור") } },
+            dismissButton = {
+                Row {
+                    if (!linked) TextButton(onClick = { scope.launch { Sync.mortyStatus(ctx)?.let { linked = it; if (!it) result = "עוד לא מחובר" } ?: run { result = "אין חיבור לשרת" } } }) { Text("בדוק") }
+                    TextButton(onClick = { telegramOpen = false }) { Text("סגור") }
+                }
+            },
         )
     }
 
@@ -638,8 +660,8 @@ fun ParkingScreen(
                     Icon(Icons.AutoMirrored.Outlined.Send, null)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("בוט טלגרם", fontWeight = FontWeight.SemiBold)
-                        Text("איפה הרכב, איפה לחנות ליד כתובת, סיכום שבועי", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("מורטי בטלגרם", fontWeight = FontWeight.SemiBold)
+                        Text(if (mortyLinked) "מחובר · התראות נשלחות גם לטלגרם" else "חיבור בלחיצה: שאלות חניה והתראות בטלגרם", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

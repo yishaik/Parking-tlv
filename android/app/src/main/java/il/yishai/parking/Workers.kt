@@ -59,7 +59,7 @@ class GarageWatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorke
                     applicationContext, 1200 + (g.name.hashCode() and 0x7f),
                     if (opened) "${g.name}: ${statusLabel(g.status)}" else "${g.name} התמלא",
                     if (opened) "החניון ${g.name} (${g.address}) עבר ל'${statusLabel(g.status)}'." else "החניון ${g.name} מלא עכשיו. כדאי לבחור חניון אחר.",
-                    pangoAction = false,
+                    pangoAction = false, forward = "medium",
                 )
             }
             GarageWatch.setStatus(applicationContext, g.name, g.status)
@@ -106,7 +106,7 @@ object WeeklyReport {
 class WeeklyReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         WeeklyReport.summary(applicationContext)?.let { (title, text) ->
-            Notifications.reminder(applicationContext, 1300, title, text, pangoAction = false)
+            Notifications.reminder(applicationContext, 1300, title, text, pangoAction = false, forward = null) // the server sends its own weekly summary
         }
         return Result.success()
     }

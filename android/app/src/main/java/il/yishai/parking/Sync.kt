@@ -74,16 +74,62 @@ object Sync {
         } catch (_: Exception) {}
     }
 
-    /** Connects the user's own Telegram bot (token from @BotFather). Returns (ok, message). */
-    suspend fun setupTelegram(ctx: Context, botToken: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-        val base = baseUrl(ctx) ?: return@withContext false to "השרת לא מוגדר"
-        val token = token(ctx) ?: return@withContext false to "אין חיבור לשרת"
+    // ---------- Morty (Telegram) ----------
+    /** Morty's Telegram bot username, without @. Bot usernames are public, not secrets. */
+    fun mortyBot(ctx: Context): String = prefs(ctx).getString("mortyBot", DEFAULT_MORTY_BOT)!!
+    fun setMortyBot(ctx: Context, name: String) = prefs(ctx).edit().putString("mortyBot", name.trim().removePrefix("@").removePrefix("https://t.me/")).apply()
+    fun mortyLinked(ctx: Context): Boolean = prefs(ctx).getBoolean("mortyLinked", false)
+    private fun setMortyLinked(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("mortyLinked", v).apply()
+    const val DEFAULT_MORTY_BOT = ""
+
+    /** Asks the server for a one-time link code and returns the t.me link that hands it to Morty. */
+    suspend fun mortyLinkUrl(ctx: Context): Result<String> = withContext(Dispatchers.IO) {
+        val bot = mortyBot(ctx).ifBlank { return@withContext Result.failure(Exception("חסר שם הבוט של מורטי")) }
+        val base = baseUrl(ctx) ?: return@withContext Result.failure(Exception("השרת לא מוגדר"))
+        val token = token(ctx) ?: return@withContext Result.failure(Exception("אין חיבור לשרת"))
         try {
-            val (code, text) = call("$base/api/telegram/setup", "POST", token, JSONObject().put("token", botToken.trim()).toString())
-            val o = try { JSONObject(text) } catch (_: Exception) { JSONObject() }
-            if (code == 200) true to "מחובר לבוט @${o.optString("bot")}. שלח לו עכשיו /start בטלגרם."
-            else false to o.optString("error", "החיבור נכשל ($code)")
-        } catch (e: Exception) { false to "החיבור נכשל: ${e.message}" }
+            val (code, text) = call("$base/api/link/start", "POST", token, "{}")
+            if (code != 200) return@withContext Result.failure(Exception("השרת החזיר $code"))
+            Result.success("https://t.me/$bot?start=" + JSONObject(text).getString("payload"))
+        } catch (e: Exception) { Result.failure(Exception("החיבור נכשל: ${e.message}")) }
+    }
+
+    /** true/false from the server, null when it cannot be reached. Cached for alert forwarding. */
+    suspend fun mortyStatus(ctx: Context): Boolean? = withContext(Dispatchers.IO) {
+        val base = baseUrl(ctx) ?: return@withContext null
+        val token = token(ctx) ?: return@withContext null
+        try {
+            val (code, text) = call("$base/api/link/status", "GET", token, null)
+            if (code != 200) null else JSONObject(text).optBoolean("linked").also { setMortyLinked(ctx, it) }
+        } catch (_: Exception) { null }
+    }
+
+    suspend fun mortyUnlink(ctx: Context): Boolean = withContext(Dispatchers.IO) {
+        val base = baseUrl(ctx) ?: return@withContext false
+        val token = token(ctx) ?: return@withContext false
+        try { (call("$base/api/link/revoke", "POST", token, "{}").first == 200).also { if (it) setMortyLinked(ctx, false) } } catch (_: Exception) { false }
+    }
+
+    /** Queues an alert for Morty's Telegram. risk "high" passes Morty's quiet hours. */
+    suspend fun notify(ctx: Context, text: String, kind: String, risk: String): Boolean = withContext(Dispatchers.IO) {
+        val base = baseUrl(ctx) ?: return@withContext false
+        val token = token(ctx) ?: return@withContext false
+        val body = JSONObject().put("text", text).put("kind", kind).put("risk", risk).toString()
+        try {
+            val (code, resp) = call("$base/api/notify", "POST", token, body)
+            if (code == 200 && !JSONObject(resp).optBoolean("queued")) setMortyLinked(ctx, false)
+            code == 200
+        } catch (_: Exception) { false }
+    }
+
+    /** Fire-and-forget forwarding that survives the receiver ending and waits for a network. */
+    fun forward(ctx: Context, title: String, text: String, kind: String, risk: String) {
+        if (!mortyLinked(ctx) || baseUrl(ctx) == null) return
+        val req = androidx.work.OneTimeWorkRequestBuilder<ForwardWorker>()
+            .setInputData(androidx.work.workDataOf("text" to "$title\n$text", "kind" to kind, "risk" to risk))
+            .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+            .build()
+        androidx.work.WorkManager.getInstance(ctx).enqueue(req)
     }
 
     suspend fun delete(ctx: Context, id: String) = withContext(Dispatchers.IO) {
@@ -108,4 +154,12 @@ object Sync {
         כלים נוספים: where_is_my_car, parking_history, garages_near, other_lots_near, loading_signs_near, zone_at, street_parking_cost.
         אל תמציא תעריפים: אם השרת מחזיר עלות לא ידועה, תגיד את זה.
     """.trimIndent()
+}
+
+class ForwardWorker(ctx: Context, params: androidx.work.WorkerParameters) : androidx.work.CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val text = inputData.getString("text") ?: return Result.success()
+        val ok = Sync.notify(applicationContext, text, inputData.getString("kind") ?: "app", inputData.getString("risk") ?: "low")
+        return if (ok || runAttemptCount >= 3) Result.success() else Result.retry()
+    }
 }
