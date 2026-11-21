@@ -16,9 +16,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci
-      - run: npm run sync
+      # A layer that fails keeps its previous snapshot; the others are still committed.
+      - run: npm run sync || echo "::warning::some layers failed and kept their previous snapshot"
       - run: npx tsx scripts/holidays.ts
       - run: npm run gen-config
+      # Never commit a snapshot that breaks the rules or zone tests.
+      - run: npm test
       - run: |
           git config user.name "parking-sync"
           git config user.email "parking-sync@users.noreply.github.com"

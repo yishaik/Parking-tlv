@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fetchLayer, LAYERS, ZONE9_BBOX } from "../src/gis.js";
 
 // Layers the app and MCP server read. Snapshots go to data/<name>.json.
@@ -28,6 +28,11 @@ for (const job of JOBS) {
   try {
     let features = await fetchLayer(LAYERS[job.name], { bbox: job.bbox, fields: job.fields });
     if (job.round) features = features.map(roundGeometry);
+    // A layer that suddenly shrinks is an outage or a broken answer, not a city change: keep the last snapshot.
+    const before = await readFile(`data/${job.name}.json`, "utf8").then((t) => (JSON.parse(t).features ?? []).length).catch(() => 0);
+    if (features.length === 0 || features.length < before * 0.5) {
+      throw new Error(`only ${features.length} features (was ${before}), keeping the previous snapshot`);
+    }
     await writeFile(
       `data/${job.name}.json`,
       JSON.stringify({ layer: LAYERS[job.name], fetchedAt: new Date().toISOString(), features }),
