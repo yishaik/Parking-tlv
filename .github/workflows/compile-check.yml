@@ -24,11 +24,17 @@ jobs:
               grep -o '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "$f" | sed 's/<testsuite //'
             done
             echo "### Lint"
-            x=android/app/build/reports/lint-results-debug.xml
-            if [ -f "$x" ]; then
-              echo "issues: $(grep -c '<issue' "$x")"
-              grep -o 'id="[A-Za-z0-9]*"[^>]*severity="[A-Za-z]*"' "$x" | sed -E 's/id="([^"]*)".*severity="([^"]*)"/\2 \1/' | sort | uniq -c | sort -rn
-            fi
+            python3 - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          x = "android/app/build/reports/lint-results-debug.xml"
+          if os.path.exists(x):
+              issues = ET.parse(x).getroot().findall("issue")
+              print(f"issues: {len(issues)}")
+              for i in issues:
+                  loc = i.find("location")
+                  where = f"{os.path.basename(loc.get('file', ''))}:{loc.get('line', '')}" if loc is not None else ""
+                  print(f"- {i.get('severity')} {i.get('id')} {where}: {i.get('message')}")
+          PY
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v4
