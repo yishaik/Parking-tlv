@@ -258,7 +258,8 @@ fun ParkingScreen(
         var linked by remember { mutableStateOf(Sync.mortyLinked(ctx)) }
         var result by remember { mutableStateOf<String?>(null) }
         var busy by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { Sync.mortyStatus(ctx)?.let { linked = it } }
+        var agents by remember { mutableStateOf<List<String>>(emptyList()) }
+        LaunchedEffect(Unit) { Sync.linkedAgents(ctx)?.let { agents = it; linked = "morty" in it } }
         AlertDialog(
             onDismissRequest = { telegramOpen = false },
             title = { Text("מורטי בטלגרם") },
@@ -271,6 +272,8 @@ fun ParkingScreen(
                         Text("לחיצה על \"חבר\" פותחת את הצ'אט עם מורטי בטלגרם. לוחצים שם Start וזהו, בלי להעתיק שום טוקן.", fontSize = 14.sp)
                         androidx.compose.material3.OutlinedTextField(bot, { bot = it }, singleLine = true, label = { Text("שם הבוט של מורטי") }, placeholder = { Text("@…bot") })
                     }
+                    val others = agents.filter { it != "morty" }
+                    if (others.isNotEmpty()) Text("אייג'נטים נוספים מחוברים: ${others.joinToString()}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     result?.let { Text(it, fontWeight = FontWeight.SemiBold) }
                 }
             },

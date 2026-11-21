@@ -62,11 +62,17 @@ const store = {
   async agents(): Promise<{ name: string; created: Date; last_seen: Date | null }[]> {
     return (await sql`select name, created, last_seen from parking.agents order by created desc`) as any;
   },
+  /** One token per agent host: relinking Morty replaces Morty's old token, other agents keep theirs. */
   async replaceAgent(name: string, token: string) {
-    await sql`delete from parking.agents`;
+    await sql`delete from parking.agents where name = ${name}`;
     await sql`insert into parking.agents (token, name) values (${token}, ${name})`;
   },
-  async removeAgents() { await sql`delete from parking.agents`; },
+  /** Removes one agent host, or all of them; returns how many are left. */
+  async removeAgents(name?: string): Promise<number> {
+    if (name) await sql`delete from parking.agents where name = ${name}`;
+    else await sql`delete from parking.agents`;
+    return Number((await sql`select count(*) as n from parking.agents`)[0].n);
+  },
   async queue(kind: string, risk: string, text: string): Promise<boolean> {
     if (!(await sql`select 1 from parking.agents limit 1`).length) return false;
     await sql`insert into parking.notifications (kind, risk, text) values (${kind}, ${risk}, ${text.slice(0, 1500)})`;
@@ -156,7 +162,7 @@ async function mcp(req: Request, store: Store): Promise<Response> {
   const reply = (result: unknown) => json({ jsonrpc: "2.0", id: msg.id, result });
   switch (msg.method) {
     case "initialize":
-      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.0" } });
+      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.1" } });
     case "ping": return reply({});
     case "tools/list": return reply({ tools: TOOLS });
     case "tools/call":
@@ -194,7 +200,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const path = url.pathname.replace(/^.*?\/parking/, "") || "/";
   const base = `https://${url.host}/functions/v1/parking`;
   if (req.method === "OPTIONS") return new Response(null, { headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, mcp-session-id, mcp-protocol-version", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS" } });
-  if (path === "/") return json({ name: "parking-tlv", version: "0.6.0", mcp: `${base}/mcp` });
+  if (path === "/") return json({ name: "parking-tlv", version: "0.6.1", mcp: `${base}/mcp` });
   if (path === "/api/register" && req.method === "POST") {
     const t = await store.register();
     return t ? json({ token: t }) : json({ error: "Already registered" }, 409);
@@ -269,13 +275,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ payload: linkPayload(url.host, code), expiresInSeconds: 600 });
   }
   if (path === "/api/link/status" && req.method === "GET") {
-    const a = (await store.agents())[0];
-    return json(a ? { linked: true, client: a.name, since: a.created, lastSeen: a.last_seen } : { linked: false });
+    const agents = (await store.agents()).map((a) => ({ client: a.name, since: a.created, lastSeen: a.last_seen }));
+    return json({ linked: agents.length > 0, agents });
   }
   if (path === "/api/link/revoke" && req.method === "POST") {
-    await store.removeAgents();
-    await unscheduleCron();
-    return json({ ok: true });
+    const body = (await req.json().catch(() => ({}))) as { client?: string };
+    const left = await store.removeAgents(body.client || undefined);
+    if (!left) await unscheduleCron();
+    return json({ ok: true, left });
   }
   if (path === "/api/notify" && req.method === "POST") {
     const body = (await req.json()) as { text?: string; kind?: string; risk?: string };

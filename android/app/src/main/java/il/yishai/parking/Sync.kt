@@ -80,7 +80,7 @@ object Sync {
     fun setMortyBot(ctx: Context, name: String) = prefs(ctx).edit().putString("mortyBot", name.trim().removePrefix("@").removePrefix("https://t.me/")).apply()
     fun mortyLinked(ctx: Context): Boolean = prefs(ctx).getBoolean("mortyLinked", false)
     private fun setMortyLinked(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("mortyLinked", v).apply()
-    const val DEFAULT_MORTY_BOT = ""
+    const val DEFAULT_MORTY_BOT = "YishaiMortybot"
 
     /** Asks the server for a one-time link code and returns the t.me link that hands it to Morty. */
     suspend fun mortyLinkUrl(ctx: Context): Result<String> = withContext(Dispatchers.IO) {
@@ -94,20 +94,28 @@ object Sync {
         } catch (e: Exception) { Result.failure(Exception("החיבור נכשל: ${e.message}")) }
     }
 
-    /** true/false from the server, null when it cannot be reached. Cached for alert forwarding. */
-    suspend fun mortyStatus(ctx: Context): Boolean? = withContext(Dispatchers.IO) {
+    /** Agent hosts linked to the server (Morty, and others later), or null when it cannot be reached. */
+    suspend fun linkedAgents(ctx: Context): List<String>? = withContext(Dispatchers.IO) {
         val base = baseUrl(ctx) ?: return@withContext null
         val token = token(ctx) ?: return@withContext null
         try {
             val (code, text) = call("$base/api/link/status", "GET", token, null)
-            if (code != 200) null else JSONObject(text).optBoolean("linked").also { setMortyLinked(ctx, it) }
+            if (code != 200) return@withContext null
+            val arr = JSONObject(text).optJSONArray("agents") ?: org.json.JSONArray()
+            List(arr.length()) { arr.getJSONObject(it).optString("client") }.also { setMortyLinked(ctx, it.isNotEmpty()) }
         } catch (_: Exception) { null }
     }
+
+    /** Whether Morty is linked; null when the server cannot be reached. */
+    suspend fun mortyStatus(ctx: Context): Boolean? = linkedAgents(ctx)?.contains("morty")
 
     suspend fun mortyUnlink(ctx: Context): Boolean = withContext(Dispatchers.IO) {
         val base = baseUrl(ctx) ?: return@withContext false
         val token = token(ctx) ?: return@withContext false
-        try { (call("$base/api/link/revoke", "POST", token, "{}").first == 200).also { if (it) setMortyLinked(ctx, false) } } catch (_: Exception) { false }
+        try {
+            val (code, text) = call("$base/api/link/revoke", "POST", token, JSONObject().put("client", "morty").toString())
+            (code == 200).also { if (it) setMortyLinked(ctx, JSONObject(text).optInt("left") > 0) }
+        } catch (_: Exception) { false }
     }
 
     /** Queues an alert for Morty's Telegram. risk "high" passes Morty's quiet hours. */
