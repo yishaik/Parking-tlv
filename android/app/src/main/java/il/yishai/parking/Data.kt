@@ -119,6 +119,8 @@ object Geo {
 
 class ParkingRepository private constructor(private val context: Context) {
     companion object {
+        // Holds the application context only (see get), so nothing short-lived is kept alive.
+        @android.annotation.SuppressLint("StaticFieldLeak")
         @Volatile private var shared: ParkingRepository? = null
         /** One repository per process: the bundled city data is parsed once, whoever asks first. */
         fun get(ctx: Context): ParkingRepository =

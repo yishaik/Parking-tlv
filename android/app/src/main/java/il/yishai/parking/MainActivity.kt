@@ -189,7 +189,7 @@ fun ParkingScreen(
     var heroExpanded by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<Notice>>(emptyList()) }
     var overrideUntil by remember { mutableStateOf(FreeOverride.until(ctx)) }
-    var watchTick by remember { mutableStateOf(0) }
+    var watchTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var telegramOpen by remember { mutableStateOf(false) }
     var crashReport by remember { mutableStateOf(CrashLog.report(ctx)) }
     var mortyLinked by remember { mutableStateOf(Sync.mortyLinked(ctx)) }

@@ -48,6 +48,8 @@ data class Spot(val lat: Double, val lon: Double, val time: Long, val source: St
 class LastSpotStore(ctx: Context) {
     private val p = ctx.getSharedPreferences("parking", Context.MODE_PRIVATE)
 
+    // commit, not apply: the save often happens from a receiver just before the process may be killed.
+    @SuppressLint("ApplySharedPref")
     fun save(lat: Double, lon: Double, source: String) {
         p.edit().putString("lat", lat.toString()).putString("lon", lon.toString())
             .putLong("time", System.currentTimeMillis()).putString("source", source).commit()
