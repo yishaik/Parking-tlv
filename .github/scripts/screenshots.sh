@@ -7,12 +7,13 @@ adb install -r -g android/app/build/outputs/apk/debug/app-debug.apk
 adb install -r -g android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 for p in ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION POST_NOTIFICATIONS; do adb shell pm grant $APP android.permission.$p || true; done
 
-# Clean status bar: fixed clock, full battery and signal, no notification icons.
+# Clean status bar: Israel time, full battery and Wi-Fi, no notification icons.
 adb shell settings put global sysui_demo_allowed 1
 adb shell am broadcast -a com.android.systemui.demo -e command enter >/dev/null
-adb shell am broadcast -a com.android.systemui.demo -e command clock -e hhmm 1058 >/dev/null
+adb shell am broadcast -a com.android.systemui.demo -e command clock -e hhmm "$(TZ=Asia/Jerusalem date +%H%M)" >/dev/null
 adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false >/dev/null
-adb shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4 -e mobile show -e level 4 >/dev/null
+adb shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4 -e fully true >/dev/null
+adb shell am broadcast -a com.android.systemui.demo -e command network -e mobile hide >/dev/null
 adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false >/dev/null
 
 # Stand on Usishkin 54 (zone 9). GPS fixes repeat so the fused provider has a fresh one.

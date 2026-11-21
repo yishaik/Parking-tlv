@@ -34,5 +34,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ steps.v.outputs.version }}" "parking-tlv-v${{ steps.v.outputs.version }}.apk" \
-            --title "v${{ steps.v.outputs.version }}" --target "${{ github.sha }}" --notes "Commit ${{ github.sha }}" --latest
+          V="${{ steps.v.outputs.version }}"
+          # Release notes: this version's section of CHANGELOG.md
+          awk -v v="$V" '$0 ~ "^## "v"( |$)" {f=1; next} /^## / && f {exit} f' CHANGELOG.md | grep -v '^</\?div' > notes.md || true
+          [ -s notes.md ] || echo "Commit ${{ github.sha }}" > notes.md
+          gh release create "v$V" "parking-tlv-v$V.apk" --title "v$V" --target "${{ github.sha }}" --notes-file notes.md --latest
