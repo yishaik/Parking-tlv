@@ -71,13 +71,15 @@ class DriveTracker(private val ctx: Context) : DefaultLifecycleObserver {
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
-        fused.removeLocationUpdates(callback)
-        last?.let { il.yishai.parking.Parking.record(ctx, it.latitude, it.longitude, "android-auto") }
+        try {
+            fused.removeLocationUpdates(callback)
+            last?.let { il.yishai.parking.Parking.record(ctx, it.latitude, it.longitude, "android-auto") }
+        } catch (e: Exception) { il.yishai.parking.CrashLog.error("android auto: save on disconnect", e) }
     }
 }
 
 class NearbyScreen(carContext: CarContext) : Screen(carContext) {
-    private val repo = ParkingRepository(carContext.applicationContext)
+    private val repo = ParkingRepository.get(carContext)
     private val store = LastSpotStore(carContext.applicationContext)
     private var garages: List<Garage>? = null
     private var zone: Int? = null
@@ -110,7 +112,8 @@ class NearbyScreen(carContext: CarContext) : Screen(carContext) {
     private fun parkHere() {
         val l = lastLoc
         if (l == null) { androidx.car.app.CarToast.makeText(carContext, "אין מיקום כרגע", androidx.car.app.CarToast.LENGTH_SHORT).show(); return }
-        il.yishai.parking.Parking.record(carContext, l.latitude, l.longitude, "android-auto")
+        try { il.yishai.parking.Parking.record(carContext, l.latitude, l.longitude, "android-auto") }
+        catch (e: Exception) { il.yishai.parking.CrashLog.error("android auto: park here", e); androidx.car.app.CarToast.makeText(carContext, "השמירה נכשלה", androidx.car.app.CarToast.LENGTH_SHORT).show(); return }
         androidx.car.app.CarToast.makeText(carContext, "נשמר. תבחר צבע מדרכה בטלפון", androidx.car.app.CarToast.LENGTH_LONG).show()
         invalidate()
     }

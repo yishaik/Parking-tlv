@@ -48,7 +48,7 @@ class GarageWatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorke
     override suspend fun doWork(): Result {
         val watched = GarageWatch.watched(applicationContext)
         if (watched.isEmpty()) { GarageWatch.schedule(applicationContext); return Result.success() }
-        val (garages, live) = ParkingRepository(applicationContext).garages()
+        val (garages, live) = ParkingRepository.get(applicationContext).garages()
         if (!live) return Result.retry()
         for (g in garages.filter { it.name in watched }) {
             val before = GarageWatch.lastStatus(applicationContext, g.name)
@@ -85,7 +85,7 @@ object WeeklyReport {
         val since = System.currentTimeMillis() - 7 * 86_400_000L
         val week = HistoryStore(ctx).all().filter { it.time >= since }
         if (week.isEmpty()) return null
-        val rules = ParkingRepository(ctx).rules
+        val rules = ParkingRepository.get(ctx).rules
         val searched = week.mapNotNull { SearchTime.of(it.search)?.minutes }
         val fast = week.filter { it.street != null && SearchTime.of(it.search) != null }.groupBy { it.street!! }
             .mapValues { (_, l) -> l.map { SearchTime.of(it.search)!!.minutes }.average() }.minByOrNull { it.value }

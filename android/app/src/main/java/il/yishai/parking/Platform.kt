@@ -79,7 +79,8 @@ object Launch {
         try {
             ctx.startActivity(nav)
         } catch (e: ActivityNotFoundException) {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lon?q=$lat,$lon")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lon?q=$lat,$lon")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            catch (_: ActivityNotFoundException) { web(ctx, "https://www.google.com/maps/dir/?api=1&destination=$lat,$lon&travelmode=${if (walking) "walking" else "driving"}") }
         }
     }
 

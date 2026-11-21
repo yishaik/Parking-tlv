@@ -5,8 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.IntentCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -21,7 +19,7 @@ class CarDisconnectReceiver : BroadcastReceiver() {
         val car = store.carDeviceAddress ?: return
         if (!device.address.equals(car, ignoreCase = true)) return
         val pending = goAsync()
-        CoroutineScope(Dispatchers.Default).launch {
+        AppScope.io.launch {
             try {
                 LocationHelper.current(context, timeoutMs = 7000)?.let { Parking.record(context, it.latitude, it.longitude, "bluetooth") }
             } finally {

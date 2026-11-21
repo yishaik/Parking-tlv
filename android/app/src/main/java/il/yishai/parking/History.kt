@@ -2,8 +2,7 @@ package il.yishai.parking
 
 import android.content.Context
 import android.location.Geocoder
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -70,25 +69,23 @@ data class ParkingEvent(
     }
 }
 
-/** Append-only-ish local history in a JSON file (hundreds to a few thousand rows). */
+/** Local history in a JSON file (hundreds to a few thousand rows). A bad row is skipped, never the whole file. */
 class HistoryStore(ctx: Context) {
-    private val file = File(ctx.applicationContext.filesDir, "history.json")
+    private val file = JsonListFile(File(ctx.applicationContext.filesDir, "history.json"))
 
-    @Synchronized fun all(): List<ParkingEvent> = try {
-        val a = JSONArray(file.readText())
-        (0 until a.length()).map { ParkingEvent.fromJson(a.getJSONObject(it)) }.sortedByDescending { it.time }
-    } catch (_: Exception) { emptyList() }
-
-    @Synchronized private fun write(list: List<ParkingEvent>) {
-        val tmp = File(file.parentFile, "history.json.tmp")
-        tmp.writeText(JSONArray().apply { list.forEach { put(it.toJson()) } }.toString())
-        tmp.renameTo(file)
+    fun all(): List<ParkingEvent> = synchronized(LOCK) {
+        (file.read() ?: JSONArray()).mapSafe { ParkingEvent.fromJson(it) }.sortedByDescending { it.time }
     }
 
-    @Synchronized fun add(e: ParkingEvent) = write(all() + e)
-    @Synchronized fun get(id: String) = all().firstOrNull { it.id == id }
-    @Synchronized fun update(id: String, f: (ParkingEvent) -> ParkingEvent) = write(all().map { if (it.id == id) f(it) else it })
-    @Synchronized fun delete(id: String) = write(all().filterNot { it.id == id })
+    private fun write(list: List<ParkingEvent>) = synchronized(LOCK) { file.write(JSONArray().apply { list.forEach { put(it.toJson()) } }) }
+
+    fun add(e: ParkingEvent) = synchronized(LOCK) { write(all() + e) }
+    fun get(id: String) = all().firstOrNull { it.id == id }
+    fun update(id: String, f: (ParkingEvent) -> ParkingEvent) = synchronized(LOCK) { write(all().map { if (it.id == id) f(it) else it }) }
+    fun delete(id: String) = synchronized(LOCK) { write(all().filterNot { it.id == id }) }
+
+    // One lock for every instance: receivers, workers and the UI each create their own store.
+    private companion object { val LOCK = Any() }
 }
 
 object Parking {
@@ -96,7 +93,7 @@ object Parking {
     fun record(ctx: Context, lat: Double, lon: Double, source: String): ParkingEvent {
         val app = ctx.applicationContext
         LastSpotStore(app).save(lat, lon, source)
-        val repo = ParkingRepository(app)
+        val repo = ParkingRepository.get(app)
         val zone = repo.zoneAt(lat, lon)
         val history = HistoryStore(app)
         val used = freeMinutesUsedToday(repo.rules, history.all())
@@ -104,8 +101,9 @@ object Parking {
         history.add(e)
         Reminders.schedule(app, repo.rules, zone, repo.onPermitBoundary(lat, lon), used)
         if (source != "manual") Notifications.askType(app, e.id, e.street)
-        CoroutineScope(Dispatchers.IO).launch {
+        AppScope.io.launch {
             if (e.street == null) streetAt(app, lat, lon)?.let { s -> history.update(e.id) { it.copy(street = s) } }
+            try { ParkingWidget().updateAll(app) } catch (x: Exception) { CrashLog.error("widget update", x) }
             Sync.push(app)
         }
         return e
@@ -117,10 +115,10 @@ object Parking {
         val history = HistoryStore(app)
         val ev = history.get(id) ?: return
         history.update(id) { it.copy(type = type?.key, search = search?.key ?: it.search, synced = false) }
-        CurbType.fromSpot(type)?.let { c -> CurbStore(app).add(ev.lat, ev.lon, c, ev.street ?: ParkingRepository(app).streetNear(ev.lat, ev.lon), "parking") }
+        CurbType.fromSpot(type)?.let { c -> CurbStore(app).add(ev.lat, ev.lon, c, ev.street ?: ParkingRepository.get(app).streetNear(ev.lat, ev.lon), "parking") }
         if (type == SpotType.SHORT_TERM) Reminders.shortTerm(app, ev.time)
         if (type == SpotType.GARAGE || type == SpotType.CLOSE_TO_HOME || type == SpotType.PRIVATE) Reminders.cancelAll(app)
-        CoroutineScope(Dispatchers.IO).launch { Sync.push(app) }
+        AppScope.io.launch { Sync.push(app) }
     }
 
     /**

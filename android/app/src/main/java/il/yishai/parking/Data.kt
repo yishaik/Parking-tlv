@@ -117,7 +117,14 @@ object Geo {
     }
 }
 
-class ParkingRepository(private val context: Context) {
+class ParkingRepository private constructor(private val context: Context) {
+    companion object {
+        @Volatile private var shared: ParkingRepository? = null
+        /** One repository per process: the bundled city data is parsed once, whoever asks first. */
+        fun get(ctx: Context): ParkingRepository =
+            shared ?: synchronized(this) { shared ?: ParkingRepository(ctx.applicationContext).also { shared = it } }
+    }
+
     private fun asset(name: String) = context.assets.open(name).bufferedReader().use { it.readText() }
     private fun features(name: String): JSONArray = try { JSONObject(asset(name)).getJSONArray("features") } catch (_: Exception) { JSONArray() }
 
@@ -129,9 +136,7 @@ class ParkingRepository(private val context: Context) {
     val rules: Rules get() = baseRules.withOverride(baseRules.freeOverride || FreeOverride.until(context) != null)
 
     val zones: List<Zone> by lazy {
-        val fs = features("zones.json")
-        (0 until fs.length()).map { i ->
-            val f = fs.getJSONObject(i)
+        features("zones.json").mapSafe { f ->
             Zone(f.getJSONObject("attributes").getInt("ms_ezor"), lines(f.getJSONObject("geometry").getJSONArray("rings")))
         }
     }
@@ -154,10 +159,8 @@ class ParkingRepository(private val context: Context) {
     val permitZoneRings: List<List<DoubleArray>> get() = zones.firstOrNull { it.number == rules.permitZone }?.rings ?: emptyList()
 
     val nightLots: List<NightLot> by lazy {
-        val fs = features("nightLots.json")
-        (0 until fs.length()).mapNotNull { i ->
-            val f = fs.getJSONObject(i)
-            val g = f.optJSONObject("geometry") ?: return@mapNotNull null
+        features("nightLots.json").mapSafe { f ->
+            val g = f.optJSONObject("geometry") ?: return@mapSafe null
             val a = f.getJSONObject("attributes")
             NightLot(a.str("shem"), a.str("ktovet"), g.getDouble("y"), g.getDouble("x"), a.str("taarif_layla"), a.str("hearot_atar"))
         }
@@ -166,18 +169,16 @@ class ParkingRepository(private val context: Context) {
     /** City public lots (556) plus OSM parking amenities that are not private. */
     val otherLots: List<OtherLot> by lazy {
         val out = mutableListOf<OtherLot>()
-        val pub = features("publicLots.json")
-        for (i in 0 until pub.length()) {
-            val f = pub.getJSONObject(i)
-            val g = f.optJSONObject("geometry") ?: continue
+        out += features("publicLots.json").mapSafe { f ->
+            val g = f.optJSONObject("geometry") ?: return@mapSafe null
             val a = f.getJSONObject("attributes")
-            out += OtherLot(a.str("name").ifBlank { a.str("address") }, a.str("address"), g.getDouble("y"), g.getDouble("x"),
+            OtherLot(a.str("name").ifBlank { a.str("address") }, a.str("address"), g.getDouble("y"), g.getDouble("x"),
                 a.optInt("num_vehicles").takeIf { it > 0 }, null, "חניון ציבורי", "עירייה")
         }
         try {
             val el = JSONObject(asset("osmParking.json")).getJSONArray("elements")
             for (i in 0 until el.length()) {
-                val e = el.getJSONObject(i)
+                val e = el.optJSONObject(i) ?: continue
                 val t = e.optJSONObject("tags") ?: continue
                 if (t.optString("amenity") != "parking" || t.optString("access") in setOf("private", "no", "customers")) continue
                 val (lat, lon) = if (e.has("lat")) e.getDouble("lat") to e.getDouble("lon")
@@ -192,12 +193,10 @@ class ParkingRepository(private val context: Context) {
     }
 
     val loadingSigns: List<LoadingSign> by lazy {
-        val fs = features("loadingSigns.json")
-        (0 until fs.length()).mapNotNull { i ->
-            val f = fs.getJSONObject(i)
-            val g = f.optJSONObject("geometry") ?: return@mapNotNull null
+        features("loadingSigns.json").mapSafe { f ->
+            val g = f.optJSONObject("geometry") ?: return@mapSafe null
             val a = f.getJSONObject("attributes")
-            if (a.str("status").let { it.isNotBlank() && it != "קיים" }) return@mapNotNull null
+            if (a.str("status").let { it.isNotBlank() && it != "קיים" }) return@mapSafe null
             LoadingSign(g.getDouble("y"), g.getDouble("x"), a.str("traffic_sign_text").replace("\r", "").lines().filter { it.isNotBlank() }.joinToString(" · "))
         }
     }
@@ -206,19 +205,16 @@ class ParkingRepository(private val context: Context) {
         loadingSigns.map { Geo.distance(lat, lon, it.lat, it.lon).roundToInt() to it }.filter { it.first <= radius }.sortedBy { it.first }
 
     val autotel: List<PointOnly> by lazy {
-        val fs = features("autotel.json")
-        (0 until fs.length()).mapNotNull { i ->
-            val a = fs.getJSONObject(i).getJSONObject("attributes")
+        features("autotel.json").mapSafe { f ->
+            val a = f.getJSONObject("attributes")
             val lat = a.optDouble("lat"); val lon = a.optDouble("lon")
             if (lat.isNaN() || lon.isNaN()) null else PointOnly(lat, lon, a.str("address0"))
         }
     }
 
     val streets: List<Street> by lazy {
-        val fs = features("streets.json")
-        (0 until fs.length()).mapNotNull { i ->
-            val f = fs.getJSONObject(i)
-            val paths = f.optJSONObject("geometry")?.optJSONArray("paths") ?: return@mapNotNull null
+        features("streets.json").mapSafe { f ->
+            val paths = f.optJSONObject("geometry")?.optJSONArray("paths") ?: return@mapSafe null
             Street(f.getJSONObject("attributes").str("t_rechov"), lines(paths))
         }
     }
@@ -229,25 +225,28 @@ class ParkingRepository(private val context: Context) {
             .minByOrNull { it.second }?.first?.name
 
     val places: List<NamedPlace> by lazy {
-        val a = JSONArray(asset("places.json"))
-        (0 until a.length()).map { val o = a.getJSONObject(it); NamedPlace(o.getString("label"), o.getDouble("lat"), o.getDouble("lon")) }
+        try { JSONArray(asset("places.json")) } catch (_: Exception) { JSONArray() }
+            .mapSafe { o -> NamedPlace(o.getString("label"), o.getDouble("lat"), o.getDouble("lon")) }
     }
 
     /** Live garage list from the city GIS (layer 970); falls back to the bundled snapshot. Second = live? */
     suspend fun garages(): Pair<List<Garage>, Boolean> = withContext(Dispatchers.IO) {
+        var conn: HttpURLConnection? = null
         try {
             val fields = "shem_chenyon,ktovet,lat,lon,status_chenyon,taarif_yom,taarif_layla,hearot_taarif"
             val url = "$GIS_BASE/970/query?where=1%3D1&returnGeometry=false&f=json&outFields=" + URLEncoder.encode(fields, "UTF-8")
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 8000 }
+            conn = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 8000 }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
-            parseGarages(JSONObject(body).getJSONArray("features")) to true
+            val live = parseGarages(JSONObject(body).getJSONArray("features"))
+            // An empty answer is an outage, not a city without garages.
+            if (live.isEmpty()) parseGarages(features("garages.json")) to false else live to true
         } catch (e: Exception) {
             parseGarages(features("garages.json")) to false
-        }
+        } finally { conn?.disconnect() }
     }
 
-    private fun parseGarages(features: JSONArray): List<Garage> = (0 until features.length()).mapNotNull { i ->
-        val a = features.getJSONObject(i).getJSONObject("attributes")
+    private fun parseGarages(features: JSONArray): List<Garage> = features.mapSafe { f ->
+        val a = f.getJSONObject("attributes")
         val lat = a.optDouble("lat")
         val lon = a.optDouble("lon")
         if (lat.isNaN() || lon.isNaN() || "נסגר" in a.str("taarif_yom") + a.str("hearot_taarif")) null

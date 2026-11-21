@@ -57,7 +57,7 @@ fun shareCarIntent(spot: Spot, street: String?): Intent {
 class ParkingWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val spot = LastSpotStore(context).load()
-        val street = spot?.let { ParkingRepository(context).streetNear(it.lat, it.lon) }
+        val street = spot?.let { ParkingRepository.get(context).streetNear(it.lat, it.lon) }
         val bg = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFF191C22))
         val fg = ColorProvider(day = Color(0xFF111111), night = Color(0xFFF1F2F4))
         val accent = ColorProvider(day = Color(0xFF111111), night = Color(0xFFF1F2F4))

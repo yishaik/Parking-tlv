@@ -27,9 +27,11 @@ object Sync {
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
             if (body != null) { doOutput = true; outputStream.use { it.write(body.toByteArray()) } }
         }
-        val code = c.responseCode
-        val text = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
-        return code to text
+        try {
+            val code = c.responseCode
+            val text = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
+            return code to text
+        } finally { c.disconnect() }
     }
 
     /** Owner token; registers on first use. null when no server is configured or it is unreachable. */

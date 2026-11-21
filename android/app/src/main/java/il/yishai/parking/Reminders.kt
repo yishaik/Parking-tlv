@@ -12,9 +12,8 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.Locale
@@ -98,7 +97,7 @@ class ClassifyActionReceiver : BroadcastReceiver() {
         val type = SpotType.of(intent.getStringExtra("type")) ?: return
         Notifications.cancel(context, Notifications.ID_CLASSIFY)
         val pending = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
+        AppScope.io.launch {
             try { Parking.classify(context, id, type, null) } finally { pending.finish() }
         }
     }
@@ -126,8 +125,28 @@ object Reminders {
         return PendingIntent.getBroadcast(ctx, req, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    // Alarms are kept in prefs too, so they can be re-armed after a reboot (see BootReceiver).
+    private fun saved(ctx: Context) = ctx.applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
+    internal fun forget(ctx: Context, vararg reqs: Int) = saved(ctx).edit().apply { reqs.forEach { remove(it.toString()) } }.apply()
+
+    /** After a reboot: future reminders are set again; one missed by under 30 minutes is shown now. */
+    fun restore(ctx: Context) {
+        val now = System.currentTimeMillis()
+        saved(ctx).all.forEach { (k, v) ->
+            val req = k.toIntOrNull() ?: return@forEach
+            val o = try { JSONObject(v as String) } catch (_: Exception) { forget(ctx, req); return@forEach }
+            val whenMillis = o.optLong("at"); val title = o.optString("title"); val text = o.optString("text")
+            when {
+                whenMillis > now -> at(ctx, whenMillis, req, title, text)
+                now - whenMillis < 30 * 60_000L -> { forget(ctx, req); Notifications.reminder(ctx, 1100 + req % 100, title, text) }
+                else -> forget(ctx, req)
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
     internal fun at(ctx: Context, whenMillis: Long, req: Int, title: String, text: String) {
+        saved(ctx).edit().putString(req.toString(), JSONObject().put("at", whenMillis).put("title", title).put("text", text).toString()).apply()
         val am = ctx.getSystemService(AlarmManager::class.java)
         val pi = pending(ctx, req, title, text)
         val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
@@ -143,11 +162,13 @@ object Reminders {
     fun cancel(ctx: Context) {
         val am = ctx.getSystemService(AlarmManager::class.java)
         listOf(REQ_PAID_STARTS, REQ_FREE_ENDING, REQ_FREE_ENDED).forEach { am.cancel(pending(ctx, it, null, null)) }
+        forget(ctx, REQ_PAID_STARTS, REQ_FREE_ENDING, REQ_FREE_ENDED)
     }
 
     fun cancelAll(ctx: Context) {
         val am = ctx.getSystemService(AlarmManager::class.java)
         parkingRequests.forEach { am.cancel(pending(ctx, it, null, null)) }
+        forget(ctx, *parkingRequests.toIntArray())
     }
 
     /**
@@ -225,11 +246,13 @@ object PangoSession {
         prefs(ctx).edit().remove("end").apply()
         val am = ctx.getSystemService(AlarmManager::class.java)
         listOf(REQ_ENDING, REQ_ENDED).forEach { am.cancel(Reminders.pending(ctx, it, null, null)) }
+        Reminders.forget(ctx, REQ_ENDING, REQ_ENDED)
     }
 }
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        Reminders.forget(context, intent.getIntExtra("req", 0))
         Notifications.reminder(
             context, 1100 + intent.getIntExtra("req", 0) % 100,
             intent.getStringExtra("title") ?: "תזכורת חניה", intent.getStringExtra("text") ?: "בדוק את החניה",

@@ -237,7 +237,7 @@ fun HistoryScreen(cardColor: Color, onBack: () -> Unit, onEdit: (ParkingEvent) -
 @Composable
 private fun StatsCard(events: List<ParkingEvent>, cardColor: Color) {
     val typed = events.filter { it.type != null }
-    val searched = events.filter { it.search != null }
+    val searched = events.filter { SearchTime.of(it.search) != null }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardColor).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row {
             Metric("חניות", events.size.toString(), Modifier.weight(1f))

@@ -173,7 +173,7 @@ fun ParkingScreen(
     classifyFromNotification: String?, consumeClassify: () -> Unit,
 ) {
     val ctx = LocalContext.current.applicationContext
-    val repo = remember { ParkingRepository(ctx) }
+    val repo = remember { ParkingRepository.get(ctx) }
     val store = remember { LastSpotStore(ctx) }
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(UiState()) }
@@ -191,6 +191,7 @@ fun ParkingScreen(
     var overrideUntil by remember { mutableStateOf(FreeOverride.until(ctx)) }
     var watchTick by remember { mutableStateOf(0) }
     var telegramOpen by remember { mutableStateOf(false) }
+    var crashReport by remember { mutableStateOf(CrashLog.report(ctx)) }
     var mortyLinked by remember { mutableStateOf(Sync.mortyLinked(ctx)) }
     LaunchedEffect(telegramOpen) { if (!telegramOpen) Sync.mortyStatus(ctx)?.let { mortyLinked = it } }
     val curbStore = remember { CurbStore(ctx) }
@@ -659,6 +660,23 @@ fun ParkingScreen(
                                 }
                                 Text(distanceText(l.distance), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+                    }
+                }
+            }
+
+            crashReport?.let { report ->
+                item {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(cardColor).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("האפליקציה נתקלה בשגיאה", fontWeight = FontWeight.SemiBold)
+                        Text("הפרטים נשמרו רק בטלפון. שליחה שלהם עוזרת לתקן.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row {
+                            TextButton(onClick = {
+                                ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
+                                    .putExtra(Intent.EXTRA_SUBJECT, "parking-tlv: דוח שגיאה").putExtra(Intent.EXTRA_TEXT, report), "שלח דוח שגיאה")
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }) { Text("שלח דוח") }
+                            TextButton(onClick = { CrashLog.clear(ctx); crashReport = null }) { Text("נקה") }
                         }
                     }
                 }

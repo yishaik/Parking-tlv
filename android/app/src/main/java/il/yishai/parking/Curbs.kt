@@ -59,26 +59,19 @@ data class CurbMark(
 }
 
 class CurbStore(ctx: Context) {
-    private val file = File(ctx.applicationContext.filesDir, "curbs.json")
+    private val file = JsonListFile(File(ctx.applicationContext.filesDir, "curbs.json"))
 
-    @Synchronized fun all(): List<CurbMark> = try {
-        val a = JSONArray(file.readText())
-        (0 until a.length()).map { CurbMark.fromJson(a.getJSONObject(it)) }
-    } catch (_: Exception) { emptyList() }
+    fun all(): List<CurbMark> = synchronized(LOCK) { (file.read() ?: JSONArray()).mapSafe { CurbMark.fromJson(it) } }
 
-    @Synchronized private fun write(list: List<CurbMark>) {
-        val tmp = File(file.parentFile, "curbs.json.tmp")
-        tmp.writeText(JSONArray().apply { list.forEach { put(it.toJson()) } }.toString())
-        tmp.renameTo(file)
-    }
+    private fun write(list: List<CurbMark>) = synchronized(LOCK) { file.write(JSONArray().apply { list.forEach { put(it.toJson()) } }) }
 
     /** A new mark replaces older ones within 8 m (the curb was re-checked). */
-    @Synchronized fun add(lat: Double, lon: Double, type: CurbType, street: String?, source: String): CurbMark {
+    fun add(lat: Double, lon: Double, type: CurbType, street: String?, source: String): CurbMark = synchronized(LOCK) {
         val m = CurbMark(UUID.randomUUID().toString(), lat, lon, type.key, street, System.currentTimeMillis(), source)
         val replaced = all().filter { Geo.distance(it.lat, it.lon, lat, lon) < 8 }
         write(all().filterNot { it in replaced } + m)
         if (replaced.isNotEmpty()) prefs.edit().putStringSet("deleted", tombstones() + replaced.map { it.id }).apply()
-        return m
+        m
     }
 
     private val prefs = ctx.applicationContext.getSharedPreferences("curbs", Context.MODE_PRIVATE)
@@ -87,9 +80,11 @@ class CurbStore(ctx: Context) {
     fun tombstones(): Set<String> = prefs.getStringSet("deleted", emptySet())!!.toSet()
     fun clearTombstones(ids: Set<String>) = prefs.edit().putStringSet("deleted", tombstones() - ids).apply()
 
-    @Synchronized fun delete(id: String) {
+    fun delete(id: String) = synchronized(LOCK) {
         write(all().filterNot { it.id == id })
         prefs.edit().putStringSet("deleted", tombstones() + id).apply()
     }
-    @Synchronized fun markSynced(ids: Set<String>) = write(all().map { if (it.id in ids) it.copy(synced = true) else it })
+    fun markSynced(ids: Set<String>) = synchronized(LOCK) { write(all().map { if (it.id in ids) it.copy(synced = true) else it }) }
+
+    private companion object { val LOCK = Any() }
 }
