@@ -6,6 +6,9 @@ import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -132,6 +135,8 @@ fun MapScreen(
     events: List<ParkingEvent>,
     onBack: () -> Unit,
     onCurbsChanged: () -> Unit,
+    onCarMoved: () -> Unit = {},
+    pickCar: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val curbs = remember { CurbStore(ctx) }
@@ -196,6 +201,7 @@ fun MapScreen(
         }
 
         // Legend + mark-here
+        if (pickCar) Icon(Icons.Outlined.DirectionsCar, null, Modifier.align(Alignment.Center).size(36.dp), tint = Color(0xFFEF4444))
         Surface(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth(),
             shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface, shadowElevation = 4.dp,
@@ -213,6 +219,18 @@ fun MapScreen(
             if (odds.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Legend(Color(0xFF22C55E), "קל למצוא (${BUCKET_LABELS[bucketOf(System.currentTimeMillis())]})"); Legend(Color(0xFFF59E0B), "בינוני"); Legend(Color(0xFFEF4444), "קשה")
             }
+            if (pickCar) Text("הזז את המפה כך שהמרכז על הרכב ולחץ \"הרכב כאן\", או לחיצה ארוכה על המקום.", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (pickCar) Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.onSurface).clickable {
+                    val c = mapRef?.mapCenter ?: return@clickable
+                    Parking.relocate(ctx, c.latitude, c.longitude); onCarMoved()
+                }.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(Icons.Outlined.DirectionsCar, null, tint = MaterialTheme.colorScheme.surface)
+                Spacer(Modifier.width(8.dp))
+                Text("הרכב כאן (מרכז המפה)", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.SemiBold)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${marks.size} סימונים", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
                 TextButton(onClick = {
@@ -228,9 +246,20 @@ fun MapScreen(
         val street = remember(lat, lon) { repo.streetNear(lat, lon) }
         val existing = marks.firstOrNull { Geo.distance(it.lat, it.lon, lat, lon) < 8 }
         ModalBottomSheet(onDismissRequest = { pending = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-            Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("מה הסימון כאן?", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(street?.let { "רחוב $it" } ?: "לא זוהה רחוב קרוב", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Forgot to save, or the saved spot is off: put the car exactly here.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.onSurface).clickable {
+                        Parking.relocate(ctx, lat, lon); pending = null; onCarMoved()
+                    }.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(Icons.Outlined.DirectionsCar, null, tint = MaterialTheme.colorScheme.surface)
+                    Spacer(Modifier.width(8.dp))
+                    Text("הרכב שלי חונה כאן", color = MaterialTheme.colorScheme.surface, fontWeight = FontWeight.SemiBold)
+                }
+                Text("מה הסימון כאן?", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CurbType.entries.forEach { t ->
                         Row(

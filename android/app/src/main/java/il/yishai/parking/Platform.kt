@@ -50,9 +50,9 @@ class LastSpotStore(ctx: Context) {
 
     // commit, not apply: the save often happens from a receiver just before the process may be killed.
     @SuppressLint("ApplySharedPref")
-    fun save(lat: Double, lon: Double, source: String) {
+    fun save(lat: Double, lon: Double, source: String, time: Long = System.currentTimeMillis()) {
         p.edit().putString("lat", lat.toString()).putString("lon", lon.toString())
-            .putLong("time", System.currentTimeMillis()).putString("source", source).commit()
+            .putLong("time", time).putString("source", source).commit()
     }
 
     fun load(): Spot? {

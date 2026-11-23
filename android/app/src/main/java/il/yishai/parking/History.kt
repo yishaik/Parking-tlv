@@ -109,6 +109,31 @@ object Parking {
         return e
     }
 
+    /**
+     * The owner corrects where the car is (picked on the map). A parking from the last 12 hours is moved,
+     * keeping its time and type, and its reminders are set again for the new spot; otherwise it is a new parking.
+     */
+    fun relocate(ctx: Context, lat: Double, lon: Double): ParkingEvent {
+        val app = ctx.applicationContext
+        val history = HistoryStore(app)
+        val last = history.all().firstOrNull()
+        if (last == null || System.currentTimeMillis() - last.time > 12 * 3600_000L) return record(app, lat, lon, "map")
+        val repo = ParkingRepository.get(app)
+        val zone = repo.zoneAt(lat, lon)
+        history.update(last.id) { it.copy(lat = lat, lon = lon, zone = zone, street = repo.streetNear(lat, lon), synced = false) }
+        LastSpotStore(app).save(lat, lon, last.source, last.time)
+        val type = SpotType.of(last.type)
+        if (type != SpotType.GARAGE && type != SpotType.CLOSE_TO_HOME && type != SpotType.PRIVATE) {
+            val others = history.all().filter { it.id != last.id }
+            Reminders.schedule(app, repo.rules, zone, repo.onPermitBoundary(lat, lon), freeMinutesUsedToday(repo.rules, others))
+        }
+        AppScope.io.launch {
+            try { ParkingWidget().updateAll(app) } catch (x: Exception) { CrashLog.error("widget update", x) }
+            Sync.push(app)
+        }
+        return history.get(last.id)!!
+    }
+
     /** Saves the parking type (from the app or the notification), adds the curb to the map, sets type-specific reminders. */
     fun classify(ctx: Context, id: String, type: SpotType?, search: SearchTime?) {
         val app = ctx.applicationContext

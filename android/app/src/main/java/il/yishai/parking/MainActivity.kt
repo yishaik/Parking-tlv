@@ -192,6 +192,7 @@ fun ParkingScreen(
     var overrideUntil by remember { mutableStateOf(FreeOverride.until(ctx)) }
     var watchTick by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var telegramOpen by remember { mutableStateOf(false) }
+    var pickCarOnMap by remember { mutableStateOf(false) }
     var crashReport by remember { mutableStateOf(CrashLog.report(ctx)) }
     var mortyLinked by remember { mutableStateOf(Sync.mortyLinked(ctx)) }
     LaunchedEffect(telegramOpen) { if (!telegramOpen) Sync.mortyStatus(ctx)?.let { mortyLinked = it } }
@@ -364,7 +365,13 @@ fun ParkingScreen(
 
     if (showMap) {
         val c = repo.places.getOrNull(focus ?: HERE)?.let { it.lat to it.lon } ?: state.myLat?.let { it to state.myLon!! }
-        MapScreen(repo, state.garages, spot, c, events, onBack = { showMap = false; curbMarks = curbStore.all() }, onCurbsChanged = { curbMarks = curbStore.all(); scope.launch { Sync.push(ctx) } })
+        val carPick = pickCarOnMap
+        MapScreen(repo, state.garages, spot, if (carPick) spot?.let { it.lat to it.lon } ?: c else c, events,
+            onBack = { showMap = false; pickCarOnMap = false; curbMarks = curbStore.all() },
+            onCurbsChanged = { curbMarks = curbStore.all(); scope.launch { Sync.push(ctx) } },
+            onCarMoved = { spot = store.load(); events = history.all(); showMap = false; pickCarOnMap = false
+                android.widget.Toast.makeText(ctx, "מיקום הרכב עודכן", android.widget.Toast.LENGTH_SHORT).show() },
+            pickCar = carPick)
         return
     }
 
@@ -589,6 +596,10 @@ fun ParkingScreen(
                             ctx.startActivity(shareCarIntent(s, events.firstOrNull()?.street ?: repo.streetNear(s.lat, s.lon)))
                         }
                         if (s != null) SoftButton("מחק", Icons.Outlined.Delete, Modifier.weight(1f), dark) { store.clear(); spot = null }
+                    }
+                    // Forgot to save when leaving the car, or the saved spot is off.
+                    SoftButton(if (s != null) "תקן על המפה" else "סמן על המפה איפה חניתי", Icons.Outlined.Map, Modifier.fillMaxWidth(), dark) {
+                        pickCarOnMap = true; showMap = true
                     }
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { setupOpen = true }.padding(vertical = 4.dp),

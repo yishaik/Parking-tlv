@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -122,11 +124,12 @@ fun SignImage(type: SpotType, size: Dp = 64.dp) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SpotTiles(types: List<SpotType>, selected: SpotType?, onPick: (SpotType) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // Three tiles per row whatever the screen width or font size; labels wrap inside the tile, never cut.
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = 3) {
         types.forEach { t ->
             val sel = selected == t
             Column(
-                Modifier.width(100.dp).clip(RoundedCornerShape(16.dp))
+                Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
                     .border(if (sel) 2.dp else 1.dp, if (sel) Color(0xFF3B82F6) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                     .background(if (sel) Color(0xFF3B82F6).copy(alpha = 0.12f) else Color.Transparent)
                     .clickable { onPick(t) }.padding(vertical = 10.dp),
@@ -134,9 +137,10 @@ private fun SpotTiles(types: List<SpotType>, selected: SpotType?, onPick: (SpotT
             ) {
                 SignImage(t, 56.dp)
                 Spacer(Modifier.height(6.dp))
-                Text(t.label, fontSize = 12.sp, maxLines = 2)
+                Text(t.label, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 3, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
+        repeat((3 - types.size % 3) % 3) { Spacer(Modifier.weight(1f)) } // keep the last row's tiles the same width
     }
 }
 
@@ -154,7 +158,7 @@ fun ClassifySheet(event: ParkingEvent, onSave: (SpotType?, SearchTime?) -> Unit,
         else photoNote = "לא הצלחתי לזהות מהתמונה. נסה לצלם מקרוב, כשהמדרכה ממלאת את חלקו התחתון של הפריים."
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("מה צבע המדרכה איפה שחנית?", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             event.street?.let { Text("ליד $it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             androidx.compose.material3.OutlinedButton(onClick = { camera.launch(null) }) { Text("צלם את המדרכה וזהה צבע") }
