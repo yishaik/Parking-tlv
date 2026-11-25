@@ -53,4 +53,26 @@ class RulesBehaviourTest {
         assertEquals(DayKind.FRI, rules.dayKind(java.time.LocalDate.parse("2027-04-21")))
         assertEquals(DayKind.SAT, rules.dayKind(java.time.LocalDate.parse("2027-04-22")))
     }
+
+    @Test fun permitDetailsFromApprovalLetter() {
+        assertEquals("59-999-79", rules.permitVehicle)
+        assertEquals("2027-11-24", rules.permitValidUntil)
+        assertEquals("31351457", rules.permitRef)
+        assertEquals(
+            "התו שלך: אזור 9 · רכב 59-999-79 · בתוקף עד 24/11/2027",
+            rules.permitLine(java.time.LocalDate.parse("2026-11-25")),
+        )
+        assertEquals(
+            "התו שלך: אזור 9 · רכב 59-999-79 · פג בעוד 30 ימים (24/11/2027)",
+            rules.permitLine(java.time.LocalDate.parse("2027-10-25")),
+        )
+        assertEquals(
+            "התו שלך: אזור 9 · רכב 59-999-79 · פג תוקף ב-24/11/2027",
+            rules.permitLine(java.time.LocalDate.parse("2027-11-25")),
+        )
+    }
+
+    @Test fun baselCloseToHomeStartsAtNine() {
+        assertEquals("א׳–ה׳ מ-21:00 עד 08:00; שישי וערבי חג מ-15:00 עד 08:00 למחרת", closeToHomeException("חניון בזל"))
+    }
 }

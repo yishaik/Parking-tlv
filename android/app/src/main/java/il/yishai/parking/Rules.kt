@@ -29,10 +29,30 @@ class Rules(
     val groups: List<ZoneGroup>,
     /** yyyy-MM-dd -> "erev" | "yomtov" */
     val holidays: Map<String, String>,
+    /** Vehicle the permit is issued for, e.g. "59-999-79" (permit letter 24/11/2026). */
+    val permitVehicle: String? = null,
+    /** Permit expiry, yyyy-MM-dd, e.g. "2027-11-24". */
+    val permitValidUntil: String? = null,
+    /** Municipality reference, e.g. "31351457". */
+    val permitRef: String? = null,
 ) {
     /** Same rules with the "free blue-white parking" switch set (from a user-confirmed announcement). */
     fun withOverride(on: Boolean): Rules = if (on == freeOverride) this
-        else Rules(hasPermit, permitZone, on, outsideFreeMinutes, discount, boundaryMeters, groups, holidays)
+        else Rules(hasPermit, permitZone, on, outsideFreeMinutes, discount, boundaryMeters, groups, holidays, permitVehicle, permitValidUntil, permitRef)
+
+    /** "התו שלך: אזור 9 · רכב 59-999-79 · בתוקף עד 24/11/2027" — warns when ≤ 60 days remain. */
+    fun permitLine(now: LocalDate = LocalDate.now()): String? {
+        if (!hasPermit || permitZone == null) return null
+        val base = "התו שלך: אזור $permitZone" + (permitVehicle?.let { " · רכב $it" } ?: "")
+        val until = permitValidUntil?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return base
+        val fmt = until.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+        val days = java.time.temporal.ChronoUnit.DAYS.between(now, until)
+        return when {
+            days < 0 -> "$base · פג תוקף ב-$fmt"
+            days <= 60 -> "$base · פג בעוד $days ימים ($fmt)"
+            else -> "$base · בתוקף עד $fmt"
+        }
+    }
 
     data class Eval(val freeMinutes: Int, val paidMinutes: Int, val cost: Double?, val paidFrom: LocalDateTime?, val appRequired: Boolean)
 
@@ -212,6 +232,9 @@ class Rules(
                 outsideFreeMinutes = o.getInt("outsideZoneFreeMinutesPerDay"),
                 discount = o.getDouble("residentDiscountOutsideZone"),
                 boundaryMeters = o.optDouble("boundaryMeters", 25.0),
+                permitVehicle = profile.optString("permitVehicle").takeIf { it.isNotBlank() },
+                permitValidUntil = profile.optString("permitValidUntil").takeIf { it.isNotBlank() },
+                permitRef = profile.optString("permitRef").takeIf { it.isNotBlank() },
                 groups = (0 until groups.length()).map { i ->
                     val g = groups.getJSONObject(i)
                     val zones = g.getJSONArray("zones")
