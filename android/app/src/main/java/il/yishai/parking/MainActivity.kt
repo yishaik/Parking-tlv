@@ -496,6 +496,7 @@ fun ParkingScreen(
                     if (expanded && ex != null) {
                         ex.lines.forEach { Text("• $it", fontSize = 14.sp, color = t.text) }
                         ex.nowLine?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 14.sp, color = t.text, fontWeight = FontWeight.SemiBold) }
+                        repo.rules.permitLine()?.let { Text(it, fontSize = 13.sp, color = t.text, fontWeight = FontWeight.SemiBold) }
                         localNotes.forEach { (note, warn) -> Text((if (warn) "⚠ " else "✓ ") + note, fontSize = 13.sp, color = t.text, fontWeight = if (warn) FontWeight.SemiBold else FontWeight.Normal, maxLines = 3) }
                     }
                 }
@@ -873,6 +874,7 @@ private fun CarPicker(ctx: Context, onPick: (String, String) -> Unit, onDismiss:
 fun closeToHomeException(name: String): String? = when {
     "רוטשילד" in name || name.trim() == "התרבות" -> "א׳–ה׳ מ-22:00; בסופ״ש עד שבת 12:00, ומ-22:00 עד 07:00 למחרת"
     "רמז" in name -> "א׳–ה׳ מ-21:00; שישי מ-16:00 עד 08:00 למחרת; שבת מ-16:00 עד 07:00 למחרת"
+    "בזל" in name -> "א׳–ה׳ מ-21:00 עד 08:00; שישי וערבי חג מ-15:00 עד 08:00 למחרת"
     "מפעל הפיס" in name -> "עד 08:00 בבוקר"
     "מוזיאון" in name -> "22:00–08:00 כל יום, כולל שבת וחג, בהצגת תעודה מזהה"
     "שרתון 2" in name -> "19:00–06:30 כל יום, כולל שבת וחג"

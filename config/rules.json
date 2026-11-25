@@ -4,12 +4,16 @@
     "Permit-holder rates 8.68 (center) and 4.90 (outer) per hour from the same PDF; visitor = rate / 0.7 -> 12.40 and 7.00",
     "Boundary streets free for permit holders of either adjacent zone, via parking app from the first minute (same PDF)",
     "Close-to-home lots: Sun-Thu 19:00-08:00, Fri/holiday eve from 15:00 to Sunday 08:00 or end of holiday (tel-aviv.gov.il ParkingArrangements)",
+    "Permit 31351457 approved 24/11/2026 (municipality letter): virtual permit zone 09 for vehicle 59-999-79, valid until 24/11/2027; close-to-home lots Reading West, Assuta, Basel, Sheraton 2; Basel Sun-Thu from 21:00 (not 19:00); municipality proactively cancels parking fines from the 60 days before issuance in regulated/resident areas",
     "Holiday eves use Friday hours (PDF). Yom tov treated like Saturday (no street payment) - assumption, check signs",
     "Holidays from config/holidays.json (@hebcal/core, Israel)"
   ],
   "profile": {
     "hasPermit": true,
-    "permitZone": 9
+    "permitZone": 9,
+    "permitVehicle": "59-999-79",
+    "permitValidUntil": "2027-11-24",
+    "permitRef": "31351457"
   },
   "freeParkingOverride": false,
   "outsideZoneFreeMinutesPerDay": 120,
