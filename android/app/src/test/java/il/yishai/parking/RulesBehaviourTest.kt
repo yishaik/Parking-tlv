@@ -49,6 +49,25 @@ class RulesBehaviourTest {
         assertNull(rules.closeToHomeFreeFrom(LocalDateTime.parse("2026-11-21T12:00"))) // Saturday
     }
 
+    @Test fun permitLetterLots() {
+        val p = rules.permit
+        assertEquals("2027-11-24", p.validUntil.toString())
+        assertEquals("אסותא", p.assignedLot("חניון אסותא"))
+        assertEquals("שרתון 2", p.assignedLot("שרתון 2"))
+        assertNull(p.assignedLot("שרתון 1"))
+        assertEquals("basel", p.hoursOf("בזל"))
+        assertEquals("sheraton2", p.hoursOf("שרתון 2"))
+        assertEquals("default", p.hoursOf("אסותא"))
+        assertEquals(50, p.discountFor("בני דן"))
+        assertEquals(50, p.discountFor("שרתון"))
+        assertEquals(75, p.discountFor("אסותא"))
+        assertEquals(LocalTime.of(21, 0), rules.closeToHomeFreeFrom(LocalDateTime.parse("2026-11-22T20:00"), "basel"))
+        assertTrue(rules.closeToHomeFree(LocalDateTime.parse("2026-11-22T21:00"), "basel"))
+        assertFalse(rules.closeToHomeFree(LocalDateTime.parse("2026-11-21T12:00"), "sheraton2")) // Sat noon
+        assertTrue(rules.closeToHomeFree(LocalDateTime.parse("2026-11-21T06:00"), "sheraton2"))
+        assertEquals(LocalTime.of(19, 0), rules.closeToHomeFreeFrom(LocalDateTime.parse("2026-11-21T12:00"), "sheraton2"))
+    }
+
     @Test fun holidayEveCountsAsFriday() {
         assertEquals(DayKind.FRI, rules.dayKind(java.time.LocalDate.parse("2027-04-21")))
         assertEquals(DayKind.SAT, rules.dayKind(java.time.LocalDate.parse("2027-04-22")))

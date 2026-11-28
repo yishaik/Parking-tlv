@@ -2,7 +2,7 @@
 // Pure functions take data explicitly where practical so they can be unit-tested with snapshots.
 import rulesJson from "./rules_config.ts";
 import { distanceToRingsMeters, haversineMeters, pointInRings, type Ring } from "./geo.ts";
-import { closeToHomeFree, evaluateStreetParking, groupFor, type RulesConfig } from "./rules.ts";
+import { closeToHomeFree, evaluateStreetParking, groupFor, lotMatches, type RulesConfig } from "./rules.ts";
 
 export const GIS = "https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer";
 export const rules = rulesJson as unknown as RulesConfig;
@@ -134,18 +134,29 @@ export function parseGarages(features: { attributes: Attrs }[]): Garage[] {
 
 const STATUS: Record<string, string> = { "פנוי": "יש מקום", "מעט": "מעט מקום", "מלא": "מלא", "סגור": "סגור", "פעיל": "פתוח, אין נתוני תפוסה" };
 
+const permit = () => rules.profile.permit ?? {};
+/** The permit's discount in an Ahuzot HaHof garage: 50% in the garages the letter lists, else 75%. */
+export function residentDiscount(name: string): number {
+  const p = permit();
+  return (p.discount50 ?? []).some((e) => lotMatches(name, e)) ? 50 : p.discountDefault ?? 75;
+}
+
 export function garagesNear(all: Garage[], lat: number, lon: number, radius = 700, limit = 8, assigned: string[] = [], at = israelNow()) {
-  const nightByName = new Map(data.nightLots.map((n) => [String(n.attributes.shem).trim(), n.attributes]));
+  const norm = (n: string) => n.replace(/חניון/g, "").trim();
+  const nightByName = new Map(data.nightLots.map((n) => [norm(String(n.attributes.shem)), n.attributes]));
+  const lots = [...new Set([...(permit().assignedLots ?? []), ...assigned])];
   return all
     .map((g) => {
-      const night = nightByName.get(g.name);
-      const discount = /(\d{2})%/.exec(`${night?.hearot_atar ?? ""} ${g.notes}`)?.[1];
-      const mine = !!night && assigned.includes(g.name);
+      const night = nightByName.get(norm(g.name));
+      const lot = lots.find((l) => lotMatches(g.name, l));
+      const hours = (lot && Object.entries(permit().lotHours ?? {}).find(([k]) => lotMatches(lot, k))?.[1]) || "default";
+      const discount = residentDiscount(g.name);
+      const mine = !!lot;
       return {
         name: g.name, address: g.address, distanceMeters: Math.round(haversineMeters(lat, lon, g.lat, g.lon)),
         occupancy: STATUS[g.status] ?? "אין מידע", dayTariff: g.dayTariff, nightTariff: g.nightTariff, notes: g.notes,
-        closeToHome: !!night, assignedToOwner: mine, freeForOwnerAtTime: mine ? closeToHomeFree(at, rules.holidays) : null,
-        residentDiscountPercent: discount ? Number(discount) : null,
+        closeToHome: !!night || mine, assignedToOwner: mine, assignedLot: lot ?? null, freeForOwnerAtTime: mine ? closeToHomeFree(at, rules.holidays, hours) : null,
+        residentDiscountPercent: discount,
         lat: g.lat, lon: g.lon, navigate: mapsLink(g.lat, g.lon),
       };
     })

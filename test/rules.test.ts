@@ -48,6 +48,12 @@ describe("evaluateStreetParking", () => {
     expect(closeToHomeFree(new Date("2026-11-22T12:00"), cfg.holidays)).toBe(false); // Sun noon
     expect(closeToHomeFree(new Date("2026-11-27T15:30"), cfg.holidays)).toBe(true); // Fri afternoon
     expect(closeToHomeFree(new Date("2026-11-28T12:00"), cfg.holidays)).toBe(true); // Saturday
+    expect(closeToHomeFree(new Date("2026-11-22T20:00"), cfg.holidays, "basel")).toBe(false); // Basel from 21:00
+    expect(closeToHomeFree(new Date("2026-11-22T21:00"), cfg.holidays, "basel")).toBe(true);
+    expect(closeToHomeFree(new Date("2026-11-27T15:30"), cfg.holidays, "basel")).toBe(true); // Fri from 15:00
+    expect(closeToHomeFree(new Date("2026-11-28T12:00"), cfg.holidays, "sheraton2")).toBe(false); // no daytime, even Sat
+    expect(closeToHomeFree(new Date("2026-11-28T06:00"), cfg.holidays, "sheraton2")).toBe(true);
+    expect(closeToHomeFree(new Date("2026-11-28T06:30"), cfg.holidays, "sheraton2")).toBe(false);
   });
 
   it("Friday ends at 17:00, Saturday is free", () => {

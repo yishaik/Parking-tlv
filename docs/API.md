@@ -52,7 +52,7 @@ https://vybivdkskrkafcuedvbg.supabase.co/functions/v1/parking
 | `GET /api/events` | כל החניות, מהחדשה לישנה |
 | `DELETE /api/events/<id>` | מוחק חניה |
 | `POST /api/curbs` | `{ curbs: [...], deleted: [ids] }` סימוני מדרכה ומחיקות |
-| `POST /api/profile` | `{ assignedLots: [names] }` חניונים "קרוב לבית" שמשויכים לבעלים |
+| `POST /api/profile` | `{ assignedLots: [names] }` חניונים "קרוב לבית" שמשויכים לבעלים | נוספים על אלה שבמכתב התו (`config/rules.json`, `profile.permit`) 
 | `POST /api/link/start` | `{ payload, expiresInSeconds }`: קוד חיבור חד-פעמי לעשר דקות |
 | `GET /api/link/status` | `{ linked, agents: [{ client, since, lastSeen }] }` |
 | `POST /api/link/revoke` | `{ client? }` מנתק אייג'נט אחד, או את כולם. מחזיר `{ ok, left }`. |

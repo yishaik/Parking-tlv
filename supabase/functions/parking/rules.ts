@@ -10,8 +10,16 @@ export interface ZoneGroup {
 
 export type HolidayKind = "erev" | "yomtov";
 
+export interface PermitInfo {
+  validUntil?: string;
+  assignedLots?: string[];
+  lotHours?: Record<string, "basel" | "sheraton2">;
+  discount50?: string[];
+  discountDefault?: number;
+}
+
 export interface RulesConfig {
-  profile: { hasPermit: boolean; permitZone: number | null };
+  profile: { hasPermit: boolean; permitZone: number | null; permit?: PermitInfo };
   /** Set true when the city announces free blue-white parking (e.g. emergency). */
   freeParkingOverride: boolean;
   outsideZoneFreeMinutesPerDay: number;
@@ -67,18 +75,26 @@ export function isPaidMinute(group: ZoneGroup, t: Date, holidays?: Record<string
 }
 
 /** "Close to home" lots: free for assigned permit holders Sun-Thu 19:00-08:00, Fri/eve from 15:00, Saturday and yom tov. */
-export function closeToHomeFree(t: Date, holidays?: Record<string, HolidayKind>): boolean {
+/**
+ * Close-to-home lots (permit letter, 24.11.2026): default Sun-Thu 19:00-08:00 and Fri/holiday eve from 15:00
+ * to Sunday 08:00 / after the holiday; "basel" the same but weekdays from 21:00; "sheraton2" 19:00-06:30 daily.
+ */
+export function closeToHomeFree(t: Date, holidays?: Record<string, HolidayKind>, hours: "default" | "basel" | "sheraton2" = "default"): boolean {
+  const m = t.getHours() * 60 + t.getMinutes();
+  if (hours === "sheraton2") return m >= 19 * 60 || m < 6 * 60 + 30;
   const k = dayKind(t, holidays);
   const h = t.getHours();
   if (k === "sat" || h < 8) return true;
-  return k === "fri" ? h >= 15 : h >= 19;
+  return k === "fri" ? h >= 15 : h >= (hours === "basel" ? 21 : 19);
 }
 
-/**
- * Blue-white street parking cost for the configured driver.
- * Policy (tel-aviv.gov.il, Feb 2025): permit holders park free all day in their own zone and on boundary streets
- * of their zone (via app); elsewhere 2 cumulative free hours per day via app, then 30% off the visitor rate.
- */
+const normLot = (n: string) => n.replace(/חניון/g, "").replace(/"/g, "").replace(/\s+/g, " ").trim();
+/** A name matches an entry when it contains it, or is the bare name of a numbered lot ("שרתון" for "שרתון 1"). */
+export function lotMatches(name: string, entry: string): boolean {
+  const n = normLot(name), e = normLot(entry);
+  return n.length > 0 && (n === e || n.includes(e) || e.startsWith(n + " "));
+}
+
 export function evaluateStreetParking(
   cfg: RulesConfig,
   zone: number | null,

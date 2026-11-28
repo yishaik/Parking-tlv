@@ -125,6 +125,20 @@ object Reminders {
         return PendingIntent.getBroadcast(ctx, req, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    private const val REQ_PERMIT_30 = 2031
+    private const val REQ_PERMIT_7 = 2032
+
+    /** Reminders to renew the zone permit 30 and 7 days before it expires (date from the permit letter). */
+    fun permitRenewal(ctx: Context, permit: Permit) {
+        val until = permit.validUntil ?: return
+        val zone = java.time.ZoneId.systemDefault()
+        listOf(30L to REQ_PERMIT_30, 7L to REQ_PERMIT_7).forEach { (days, req) ->
+            val whenMillis = until.minusDays(days).atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+            if (whenMillis > System.currentTimeMillis()) at(ctx, whenMillis, req, "תו החניה פג בעוד $days ימים",
+                "התו לאזור 9 בתוקף עד ${until.dayOfMonth}.${until.monthValue}.${until.year}. חידוש באתר העירייה או ב-*3013.")
+        }
+    }
+
     // Alarms are kept in prefs too, so they can be re-armed after a reboot (see BootReceiver).
     private fun saved(ctx: Context) = ctx.applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
     internal fun forget(ctx: Context, vararg reqs: Int) = saved(ctx).edit().apply { reqs.forEach { remove(it.toString()) } }.apply()

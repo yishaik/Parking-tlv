@@ -2,7 +2,7 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  curbMapNear, garagesNear, israelNow, loadingSignsNear, onPermitBoundary, otherLotsNear, parkingNearDestination, parseGarages,
+  curbMapNear, garagesNear, residentDiscount, israelNow, loadingSignsNear, onPermitBoundary, otherLotsNear, parkingNearDestination, parseGarages,
   parseLocal, setData, stats, streetCost, zoneAt, type Event,
 } from "../supabase/functions/parking/tools.ts";
 
@@ -38,10 +38,25 @@ describe("function tools", () => {
   });
 
   it("marks assigned close-to-home lots free at night", () => {
-    const g = garagesNear(garages(), NORDAU.lat, NORDAU.lon, 1500, 20, ["בזל"], parseLocal("2026-11-22T20:00"));
-    const basel = g.find((x) => x.name === "בזל");
-    if (basel) expect(basel.freeForOwnerAtTime).toBe(true);
+    // Permit letter: Basel is free Sun-Thu only from 21:00; assigned lots come from the letter with no setting.
+    const at = (s: string) => garagesNear(garages(), NORDAU.lat, NORDAU.lon, 1500, 20, [], parseLocal(s)).find((x) => x.name === "בזל");
+    const basel = at("2026-11-22T20:00");
+    if (basel) {
+      expect(basel.assignedToOwner).toBe(true);
+      expect(basel.freeForOwnerAtTime).toBe(false);
+      expect(at("2026-11-22T21:30")!.freeForOwnerAtTime).toBe(true);
+      expect(basel.residentDiscountPercent).toBe(50);
+    }
+    const g = garagesNear(garages(), NORDAU.lat, NORDAU.lon, 1500, 20, [], parseLocal("2026-11-22T20:00"));
     expect(g[0].distanceMeters).toBeLessThanOrEqual(g.at(-1)!.distanceMeters);
+  });
+
+  it("takes the resident discount from the permit letter", () => {
+    expect(residentDiscount("בני דן")).toBe(50);
+    expect(residentDiscount("כרמל 1")).toBe(50);
+    expect(residentDiscount("שרתון")).toBe(50);
+    expect(residentDiscount("אסותא")).toBe(75);
+    expect(residentDiscount("רידינג מערב")).toBe(75);
   });
 
   it("finds other lots and loading signs with text", () => {

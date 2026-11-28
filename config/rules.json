@@ -5,11 +5,36 @@
     "Boundary streets free for permit holders of either adjacent zone, via parking app from the first minute (same PDF)",
     "Close-to-home lots: Sun-Thu 19:00-08:00, Fri/holiday eve from 15:00 to Sunday 08:00 or end of holiday (tel-aviv.gov.il ParkingArrangements)",
     "Holiday eves use Friday hours (PDF). Yom tov treated like Saturday (no street payment) - assumption, check signs",
-    "Holidays from config/holidays.json (@hebcal/core, Israel)"
+    "Holidays from config/holidays.json (@hebcal/core, Israel)",
+    "Permit letter from the parking department, 24.11.2026: zone 09 virtual permit valid until 24.11.2027; assigned close-to-home lots רידינג מערב, אסותא, בזל, שרתון 2 with their hours; 50% discount in the listed Ahuzot garages, 75% in the rest"
   ],
   "profile": {
     "hasPermit": true,
-    "permitZone": 9
+    "permitZone": 9,
+    "permit": {
+      "validUntil": "2027-11-24",
+      "assignedLots": [
+        "רידינג מערב",
+        "אסותא",
+        "בזל",
+        "שרתון 2"
+      ],
+      "lotHours": {
+        "בזל": "basel",
+        "שרתון 2": "sheraton2"
+      },
+      "discount50": [
+        "אוניברסיט",
+        "כרמל",
+        "גולדה",
+        "תל נורדאו",
+        "בזל",
+        "שרתון 1",
+        "בוגרשוב",
+        "בני דן"
+      ],
+      "discountDefault": 75
+    }
   },
   "freeParkingOverride": false,
   "outsideZoneFreeMinutesPerDay": 120,

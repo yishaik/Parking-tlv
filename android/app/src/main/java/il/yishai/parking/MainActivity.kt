@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity() {
         parkRequest.value = intent?.action == ACTION_PARK_HERE
         WeeklyReport.schedule(this)
         GarageWatch.schedule(this)
+        Reminders.permitRenewal(this, ParkingRepository.get(this).rules.permit)
         val prefs = getSharedPreferences("ui", MODE_PRIVATE)
         setContent {
             // "system" | "dark" | "light"
@@ -393,6 +394,10 @@ fun ParkingScreen(
         curbHere?.let { add("סימנת כאן: ${CurbType.of(it.type)?.label ?: it.type}" to (it.type in restricted)) }
         loadingSigns.firstOrNull()?.let { (d, sign) -> add("תמרור פריקה וטעינה ב-$d מ׳: ${sign.text}" to true) }
         if (autotelHere) add("יש כאן חניות שמורות לאוטותל, אסור לחנות בהן" to true)
+        repo.rules.permit.daysLeft()?.let { d ->
+            if (d < 0) add("תו החניה פג. בלי תו חידוש, החניה באזור 9 בתשלום" to true)
+            else if (d <= 30) add("תו החניה פג בעוד $d ימים. חידוש באתר העירייה או ב-*3013" to true)
+        }
     }
     val heroActionable = (explanation?.actionable ?: false) || localNotes.any { it.second }
     // Whether a parking app is needed here now (own zone or free hours: no).
@@ -402,7 +407,8 @@ fun ParkingScreen(
     val now = LocalDateTime.now()
     val garages = if (pLat == null || pLon == null) emptyList() else
         state.garages.map { it.copy(distance = Geo.distance(pLat, pLon, it.lat, it.lon)) }.sortedBy { it.distance }.take(8)
-    val nightByName = remember { repo.nightLots.associateBy { it.name.trim() } }
+    // "חניון אסותא" (close-to-home layer) and "אסותא" (garages layer) are one lot.
+    val nightByName = remember { repo.nightLots.associateBy { it.name.replace("חניון", "").trim() } }
     val autoReady = carName != null && hasBackground
     val cardColor = if (dark) Color(0xFF191C22) else Color.White
 
@@ -636,17 +642,26 @@ fun ParkingScreen(
                     if (garages.isEmpty()) Text(if (state.loading) "טוען…" else "אין חניונים להצגה", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     garages.forEachIndexed { i, g ->
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        val night = nightByName[g.name.trim()]
-                        val mine = night != null && g.name.trim() in assigned
-                        val exception = closeToHomeException(g.name)
+                        val night = nightByName[g.name.replace("חניון", "").trim()]
+                        val letterLot = repo.rules.permit.assignedLot(g.name) // from the permit letter
+                        val mine = letterLot != null || (night != null && g.name.trim() in assigned)
+                        val lotName = letterLot ?: g.name
+                        val hours = repo.rules.permit.hoursOf(lotName)
+                        val exception = closeToHomeException(lotName)
                         val watching = remember(watchTick, g.name) { GarageWatch.isWatched(ctx, g.name) }
                         GarageRow(
                             g, night, expanded == g.name,
-                            assignedNote = when { !mine -> null; exception != null -> "משויך לך · שעות מיוחדות"; repo.rules.closeToHomeFree(now) -> "משויך לך · חינם עכשיו"; else -> "משויך לך · חינם מ-${repo.rules.closeToHomeFreeFrom(now)}" },
+                            assignedNote = when {
+                                !mine -> null
+                                hours == "default" && exception != null -> "משויך לך · שעות מיוחדות"
+                                repo.rules.closeToHomeFree(now, hours) -> "משויך לך · חינם עכשיו"
+                                else -> "משויך לך · חינם מ-${repo.rules.closeToHomeFreeFrom(now, hours)}"
+                            },
+                            discount = repo.rules.permit.discountFor(g.name),
                             exception = exception,
                             watching = watching,
                             onToggleWatch = { GarageWatch.toggle(ctx, g.name, g.status); watchTick++ },
-                            onToggleAssigned = if (night == null) null else ({
+                            onToggleAssigned = if (night == null || letterLot != null) null else ({
                                 assigned = if (mine) assigned - g.name.trim() else assigned + g.name.trim()
                                 assignedPrefs.edit().putStringSet("lots", assigned).apply()
                                 scope.launch { Sync.push(ctx) }
@@ -787,7 +802,7 @@ private fun SoftButton(label: String, icon: ImageVector, modifier: Modifier, dar
 
 @Composable
 private fun GarageRow(
-    g: Garage, night: NightLot?, open: Boolean, assignedNote: String?, exception: String?, watching: Boolean, onToggleWatch: () -> Unit,
+    g: Garage, night: NightLot?, open: Boolean, assignedNote: String?, discount: Int, exception: String?, watching: Boolean, onToggleWatch: () -> Unit,
     onToggleAssigned: (() -> Unit)?, isAssigned: Boolean, onToggle: () -> Unit, onNavigate: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onToggle).padding(16.dp, 14.dp)) {
@@ -800,7 +815,7 @@ private fun GarageRow(
                 val tags = buildList {
                     if (assignedNote != null) add(assignedNote) else if (night != null) add("קרוב לבית")
                     if (watching) add("מעקב פעיל")
-                    Regex("(\\d{2})%").find(night?.notes.orEmpty() + " " + g.notes)?.let { add("${it.groupValues[1]}% לתושב") }
+                    add("$discount% הנחת תושב") // per the permit letter: 50% in listed garages, 75% in the rest
                 }
                 if (tags.isNotEmpty()) Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { tags.forEach { Tag(it) } }
             }
@@ -811,7 +826,7 @@ private fun GarageRow(
             Column(Modifier.padding(start = 24.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (g.dayTariff.isNotBlank()) Text(g.dayTariff, fontSize = 13.sp)
                 if (g.nightTariff.isNotBlank()) Text("לילה: ${g.nightTariff}", fontSize = 13.sp)
-                if (night != null) Text(exception?.let { "חניון 'קרוב לבית' עם שעות מיוחדות: $it" }
+                if (night != null || assignedNote != null) Text(exception?.let { "חניון 'קרוב לבית' עם שעות מיוחדות: $it" }
                     ?: "חניון 'קרוב לבית': חינם לבעלי תו משויך בא׳–ה׳ 19:00–08:00, ובשישי וערבי חג מ-15:00 עד ראשון 08:00 / צאת החג", fontSize = 13.sp)
                 TextButton(onClick = onToggleWatch) {
                     Icon(if (watching) Icons.Outlined.NotificationsOff else Icons.Outlined.NotificationsActive, null, Modifier.size(18.dp))
@@ -876,5 +891,6 @@ fun closeToHomeException(name: String): String? = when {
     "מפעל הפיס" in name -> "עד 08:00 בבוקר"
     "מוזיאון" in name -> "22:00–08:00 כל יום, כולל שבת וחג, בהצגת תעודה מזהה"
     "שרתון 2" in name -> "19:00–06:30 כל יום, כולל שבת וחג"
+    name.replace("חניון", "").trim() == "בזל" -> "א׳–ה׳ 21:00–08:00; ו׳ וערבי חג מ-15:00 עד ראשון 08:00 / אחרי החג"
     else -> null
 }

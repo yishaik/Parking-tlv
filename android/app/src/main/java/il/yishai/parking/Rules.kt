@@ -29,10 +29,11 @@ class Rules(
     val groups: List<ZoneGroup>,
     /** yyyy-MM-dd -> "erev" | "yomtov" */
     val holidays: Map<String, String>,
+    val permit: Permit = Permit.NONE,
 ) {
     /** Same rules with the "free blue-white parking" switch set (from a user-confirmed announcement). */
     fun withOverride(on: Boolean): Rules = if (on == freeOverride) this
-        else Rules(hasPermit, permitZone, on, outsideFreeMinutes, discount, boundaryMeters, groups, holidays)
+        else Rules(hasPermit, permitZone, on, outsideFreeMinutes, discount, boundaryMeters, groups, holidays, permit)
 
     data class Eval(val freeMinutes: Int, val paidMinutes: Int, val cost: Double?, val paidFrom: LocalDateTime?, val appRequired: Boolean)
 
@@ -57,18 +58,28 @@ class Rules(
         return !m.isBefore(w.first) && m.isBefore(w.second)
     }
 
-    /** Close-to-home lots: free for assigned permit holders Sun–Thu 19:00–08:00, Fri/eve from 15:00, Saturday and yom tov. */
-    fun closeToHomeFree(t: LocalDateTime): Boolean {
+    /**
+     * Close-to-home lots, free for the permit's assigned lots (permit letter, 24.11.2026):
+     * default Sun–Thu 19:00–08:00 and Fri/holiday eve from 15:00 to Sunday 08:00 / after the holiday;
+     * "basel" the same but weekdays from 21:00; "sheraton2" 19:00–06:30 every day of the week.
+     */
+    fun closeToHomeFree(t: LocalDateTime, hours: String = "default"): Boolean {
+        val m = t.toLocalTime()
+        if (hours == "sheraton2") return !m.isBefore(LocalTime.of(19, 0)) || m.isBefore(LocalTime.of(6, 30))
         val k = dayKind(t.toLocalDate())
-        val h = t.hour
-        if (k == DayKind.SAT || h < 8) return true
-        return if (k == DayKind.FRI) h >= 15 else h >= 19
+        if (k == DayKind.SAT || t.hour < 8) return true
+        return if (k == DayKind.FRI) t.hour >= 15 else t.hour >= (if (hours == "basel") 21 else 19)
     }
 
-    /** Next time today a close-to-home lot becomes free (null if free now). */
-    fun closeToHomeFreeFrom(t: LocalDateTime): LocalTime? {
-        if (closeToHomeFree(t)) return null
-        return if (dayKind(t.toLocalDate()) == DayKind.FRI) LocalTime.of(15, 0) else LocalTime.of(19, 0)
+    /** Next time today the lot becomes free (null if free now). */
+    fun closeToHomeFreeFrom(t: LocalDateTime, hours: String = "default"): LocalTime? {
+        if (closeToHomeFree(t, hours)) return null
+        if (hours == "sheraton2") return LocalTime.of(19, 0)
+        return when {
+            dayKind(t.toLocalDate()) == DayKind.FRI -> LocalTime.of(15, 0)
+            hours == "basel" -> LocalTime.of(21, 0)
+            else -> LocalTime.of(19, 0)
+        }
     }
 
     fun evaluate(zone: Int?, start: LocalDateTime, minutes: Int, usedToday: Int = 0, onPermitBoundary: Boolean = false): Eval {
@@ -206,6 +217,7 @@ class Rules(
             val hol = mutableMapOf<String, String>()
             holidaysJson?.optJSONObject("days")?.let { d -> d.keys().forEach { hol[it] = d.getString(it) } }
             return Rules(
+                permit = Permit.parse(profile),
                 hasPermit = profile.getBoolean("hasPermit"),
                 permitZone = if (profile.isNull("permitZone")) null else profile.getInt("permitZone"),
                 freeOverride = o.optBoolean("freeParkingOverride", false),
