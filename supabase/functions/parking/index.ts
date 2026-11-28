@@ -162,7 +162,7 @@ async function mcp(req: Request, store: Store): Promise<Response> {
   const reply = (result: unknown) => json({ jsonrpc: "2.0", id: msg.id, result });
   switch (msg.method) {
     case "initialize":
-      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.2" } });
+      return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "parking-tlv", version: "0.6.3" } });
     case "ping": return reply({});
     case "tools/list": return reply({ tools: TOOLS });
     case "tools/call":
@@ -210,11 +210,11 @@ async function handle(req: Request): Promise<Response> {
   const path = url.pathname.replace(/^.*?\/parking/, "") || "/";
   const base = `https://${url.host}/functions/v1/parking`;
   if (req.method === "OPTIONS") return new Response(null, { headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, mcp-session-id, mcp-protocol-version", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS" } });
-  if (path === "/") return json({ name: "parking-tlv", version: "0.6.2", mcp: `${base}/mcp` });
+  if (path === "/") return json({ name: "parking-tlv", version: "0.6.3", mcp: `${base}/mcp` });
   // Public, no data: what the server knows right now. server-health checks it.
   if (path === "/health") {
     await loadData();
-    return json({ ok: data.zones.length > 0, version: "0.6.2", zones: data.zones.length, nightLots: data.nightLots.length, publicLots: data.publicLots.length, loadingSigns: data.loadingSigns.length, autotel: data.autotel.length, source: dataSource });
+    return json({ ok: data.zones.length > 0, version: "0.6.3", zones: data.zones.length, nightLots: data.nightLots.length, publicLots: data.publicLots.length, loadingSigns: data.loadingSigns.length, autotel: data.autotel.length, source: dataSource });
   }
   if (path === "/api/register" && req.method === "POST") {
     const t = await store.register();

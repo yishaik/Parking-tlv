@@ -74,7 +74,6 @@ export function isPaidMinute(group: ZoneGroup, t: Date, holidays?: Record<string
   return m >= toMin(w[0]) && m < toMin(w[1]);
 }
 
-/** "Close to home" lots: free for assigned permit holders Sun-Thu 19:00-08:00, Fri/eve from 15:00, Saturday and yom tov. */
 /**
  * Close-to-home lots (permit letter, 24.11.2026): default Sun-Thu 19:00-08:00 and Fri/holiday eve from 15:00
  * to Sunday 08:00 / after the holiday; "basel" the same but weekdays from 21:00; "sheraton2" 19:00-06:30 daily.

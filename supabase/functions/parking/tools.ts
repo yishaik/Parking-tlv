@@ -275,7 +275,7 @@ export function parkingNearDestination(
     reminders: [
       "60-minute short-term spots are free once a day, but must be started in a parking app",
       "Preferred-parking segments are for that zone's permit holders only: check the sign",
-      "Ahuzot HaHof garage tariffs rose ~20% in 2026 and the 75% resident discount became 50% in five central garages: trust the tariff text, not old percentages",
+      "Ahuzot HaHof garage tariffs rose ~20% in 2026; residentDiscountPercent comes from the owner's permit letter (50% or 75%)",
     ],
   };
 }
